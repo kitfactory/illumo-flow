@@ -25,6 +25,9 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "summary": "Read source payload",
                         "context_outputs": ["outputs.raw"],
                     },
+                    "context": {
+                        "output": "data.raw",
+                    },
                 },
                 "transform": {
                     "type": "illumo.nodes.FunctionNode",
@@ -34,6 +37,10 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_inputs": ["outputs.raw"],
                         "context_outputs": ["outputs.normalized"],
                     },
+                    "context": {
+                        "input": "data.raw",
+                        "output": "data.normalized",
+                    },
                 },
                 "load": {
                     "type": "illumo.nodes.FunctionNode",
@@ -42,6 +49,10 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "summary": "Persist normalized payload",
                         "context_inputs": ["outputs.normalized"],
                         "context_outputs": ["outputs.persisted"],
+                    },
+                    "context": {
+                        "input": "data.normalized",
+                        "output": "data.persisted",
                     },
                 },
             },
@@ -79,6 +90,9 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_inputs": ["inputs.application"],
                         "context_outputs": ["outputs.decision"],
                     },
+                    "context": {
+                        "output": "decisions.auto",
+                    },
                 },
                 "reject": {
                     "type": "illumo.nodes.FunctionNode",
@@ -88,6 +102,9 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_inputs": ["inputs.application"],
                         "context_outputs": ["outputs.decision"],
                     },
+                    "context": {
+                        "output": "decisions.auto",
+                    },
                 },
                 "manual_review": {
                     "type": "illumo.nodes.FunctionNode",
@@ -95,6 +112,9 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                     "describe": {
                         "summary": "Escalate to human reviewer",
                         "context_outputs": ["outputs.review_ticket"],
+                    },
+                    "context": {
+                        "output": "decisions.manual_review",
                     },
                 },
             },
@@ -121,6 +141,9 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "summary": "Seed enrichment inputs",
                         "context_outputs": ["inputs.customer"],
                     },
+                    "context": {
+                        "output": "data.customer",
+                    },
                 },
                 "geo": {
                     "type": "illumo.nodes.FunctionNode",
@@ -129,6 +152,10 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "summary": "Geo enrichment",
                         "context_inputs": ["inputs.customer"],
                         "context_outputs": ["joins.enrich.geo"],
+                    },
+                    "context": {
+                        "input": "data.customer",
+                        "output": "data.geo",
                     },
                 },
                 "risk": {
@@ -139,6 +166,10 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_inputs": ["inputs.customer"],
                         "context_outputs": ["joins.enrich.risk"],
                     },
+                    "context": {
+                        "input": "data.customer",
+                        "output": "data.risk",
+                    },
                 },
                 "merge": {
                     "type": "illumo.nodes.FunctionNode",
@@ -147,6 +178,9 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "summary": "Merge geo and risk",
                         "context_inputs": ["joins.enrich.geo", "joins.enrich.risk"],
                         "context_outputs": ["outputs.profile"],
+                    },
+                    "context": {
+                        "output": "data.profile",
                     },
                 },
             },
@@ -174,6 +208,9 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "summary": "Invoke external API with internal timeout",
                         "context_outputs": ["outputs.api_response"],
                     },
+                    "context": {
+                        "output": "data.api_response",
+                    },
                 },
                 "parse": {
                     "type": "illumo.nodes.FunctionNode",
@@ -182,6 +219,10 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "summary": "Parse API response",
                         "context_inputs": ["outputs.api_response"],
                         "context_outputs": ["outputs.parsed"],
+                    },
+                    "context": {
+                        "input": "data.api_response",
+                        "output": "data.api_parsed",
                     },
                 },
             },

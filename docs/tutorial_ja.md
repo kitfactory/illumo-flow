@@ -20,9 +20,9 @@ from illumo_flow import Flow, FunctionNode
 from examples import ops
 
 nodes = {
-    "extract": FunctionNode(ops.extract),
-    "transform": FunctionNode(ops.transform),
-    "load": FunctionNode(ops.load),
+    "extract": FunctionNode(ops.extract, output_path="data.raw"),
+    "transform": FunctionNode(ops.transform, input_path="data.raw", output_path="data.normalized"),
+    "load": FunctionNode(ops.load, input_path="data.normalized", output_path="data.persisted"),
 }
 
 flow = Flow.from_dsl(
@@ -35,7 +35,7 @@ context = {}
 result = flow.run(context)
 ```
 
-3. `context["payloads"]` がノードID→出力の辞書、`context["steps"]` が実行順を示します。
+3. `context["payloads"]` がノードID→出力の辞書、`context["data"]["persisted"]` に最終ペイロードが格納されます。`context["steps"]` が実行順を示します。
 4. `transform` 内で例外を投げ、Fail-Fast で停止し `failed_node_id` が記録されることを確認。
 
 ## 3. ルーティング分岐

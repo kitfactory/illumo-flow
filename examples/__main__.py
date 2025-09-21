@@ -28,7 +28,12 @@ def build_flow(example_id: str) -> Flow:
     for node_id, node_cfg in example["dsl"]["nodes"].items():
         func_name = node_cfg["callable"].split(".")[-1]
         func = getattr(ops, func_name)
-        node = FunctionNode(func)
+        context_cfg = node_cfg.get("context", {})
+        node = FunctionNode(
+            func,
+            input_path=context_cfg.get("input"),
+            output_path=context_cfg.get("output"),
+        )
         if "default_route" in node_cfg:
             node.default_route = node_cfg["default_route"]
         nodes[node_id] = node

@@ -31,6 +31,34 @@ def _ensure_context(context: Optional[MutableMapping[str, Any]]) -> MutableMappi
     return context
 
 
+def _get_from_path(mapping: MutableMapping[str, Any], path: Optional[str]) -> Any:
+    if not path:
+        return None
+    parts = [p for p in path.split(".") if p]
+    current: Any = mapping
+    for part in parts:
+        if not isinstance(current, Mapping) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def _set_to_path(mapping: MutableMapping[str, Any], path: Optional[str], value: Any) -> None:
+    if not path:
+        return
+    parts = [p for p in path.split(".") if p]
+    if not parts:
+        return
+    current: MutableMapping[str, Any] = mapping
+    for part in parts[:-1]:
+        next_item = current.get(part)
+        if not isinstance(next_item, MutableMapping):
+            next_item = {}
+            current[part] = next_item
+        current = next_item
+    current[parts[-1]] = value
+
+
 class Node:
     """Base node interface. Subclasses must implement :meth:`run`."""
 
@@ -40,11 +68,15 @@ class Node:
         name: Optional[str] = None,
         next_route: Optional[str] = None,
         default_route: Optional[str] = None,
+        input_path: Optional[str] = None,
+        output_path: Optional[str] = None,
         metadata: Optional[Mapping[str, Any]] = None,
     ) -> None:
         self.name = name or self.__class__.__name__
         self.next_route = next_route
         self.default_route = default_route
+        self._input_path = input_path
+        self._output_path = output_path
         self._metadata: Dict[str, Any] = dict(metadata or {})
         self._node_id: Optional[str] = None
 
@@ -76,6 +108,8 @@ class Node:
             "class": self.__class__.__name__,
             "next_route": self.next_route,
             "default_route": self.default_route,
+            "input_path": self._input_path,
+            "output_path": self._output_path,
         }
         base.update(self._metadata)
         return base
@@ -87,6 +121,8 @@ class Node:
             raise FlowError("Node output cannot be recorded before binding to a flow")
         payloads = context.setdefault("payloads", {})
         payloads[self._node_id] = value
+        if self._output_path:
+            _set_to_path(context, self._output_path, value)
 
 
 class FunctionNode(Node):
@@ -99,12 +135,16 @@ class FunctionNode(Node):
         name: Optional[str] = None,
         next_route: Optional[str] = None,
         default_route: Optional[str] = None,
+        input_path: Optional[str] = None,
+        output_path: Optional[str] = None,
         metadata: Optional[Mapping[str, Any]] = None,
     ) -> None:
         super().__init__(
             name=name,
             next_route=next_route,
             default_route=default_route,
+            input_path=input_path,
+            output_path=output_path,
             metadata=metadata,
         )
         self._func = func
@@ -238,6 +278,9 @@ class Flow:
             context["steps"].append({"node_id": node_id, "status": "start"})
 
             input_payload = payloads.get(node_id)
+            requested_payload = _get_from_path(context, getattr(node, "_input_path", None))
+            if requested_payload is not None:
+                input_payload = requested_payload
             try:
                 updated_context = node.run(user_input=input_payload, context=context)
             except Exception as exc:

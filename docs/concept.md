@@ -27,10 +27,10 @@
 ```python
 from illumo import Flow, FunctionNode
 
-start = FunctionNode(lambda ctx, x: x, name="start")
-A     = FunctionNode(lambda ctx, x: f"A:{x}", name="A")
-B     = FunctionNode(lambda ctx, x: f"B:{x}", name="B")
-join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join")
+start = FunctionNode(lambda ctx, x: x, name="start", output_path="data.start")
+A     = FunctionNode(lambda ctx, x: f"A:{x}", name="A", input_path="data.start", output_path="data.A")
+B     = FunctionNode(lambda ctx, x: f"B:{x}", name="B", input_path="data.start", output_path="data.B")
+join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join", input_path="data")
 
 flow = Flow.from_dsl(
     nodes={"start": start, "A": A, "B": B, "join": join},
@@ -65,15 +65,26 @@ flow:
     start:
       type: illumo.nodes.FunctionNode
       callable: start_func
+      context:
+        output: data.start
     A:
       type: illumo.nodes.FunctionNode
       callable: node_a
+      context:
+        input: data.start
+        output: data.A
     B:
       type: illumo.nodes.FunctionNode
       callable: node_b
+      context:
+        input: data.start
+        output: data.B
     join:
       type: illumo.nodes.FunctionNode
       callable: join_func
+      context:
+        input: joins.join
+        output: data.join
   edges:
     - start >> (A | B)
     - (A & B) >> join
@@ -82,6 +93,7 @@ flow:
 - Parsed configs normalize into the internal dictionary that `Flow` expects, keeping code-defined and config-defined flows interoperable
 - Node entries may carry metadata (`summary`, `inputs`, `returns`) that populate `node.describe()` for documentation and validation
 - Custom loaders can enforce environment restrictions (allowed modules, sandbox policies) before instantiating nodes
+- Optional `context.input` / `context.output` keys control where data is read from and written to within the shared context dictionary
 
 ## Runtime Behavior
 - Parallel execution: every node with satisfied dependencies starts without delay

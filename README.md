@@ -6,6 +6,7 @@ Workflow orchestration primitives featuring declarative DSL wiring, routing cont
 - `Flow` orchestrator with DSL edges (`A >> B`, `(A & B) >> C`)
 - `Node` / `FunctionNode` abstractions using `(context, payload)` signature
 - Context namespaces for steps, routing decisions, join buffers, and payloads
+- Per-node context wiring via `context.input` / `context.output` paths
 - Routing metadata via `Routing(next, confidence, reason)`
 - Examples and smoke tests covering ETL, dynamic routing, fan-out/fan-in, timeout handling, and early stop
 

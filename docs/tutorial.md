@@ -20,9 +20,9 @@ from illumo_flow import Flow, FunctionNode
 from examples import ops
 
 nodes = {
-    "extract": FunctionNode(ops.extract),
-    "transform": FunctionNode(ops.transform),
-    "load": FunctionNode(ops.load),
+    "extract": FunctionNode(ops.extract, output_path="data.raw"),
+    "transform": FunctionNode(ops.transform, input_path="data.raw", output_path="data.normalized"),
+    "load": FunctionNode(ops.load, input_path="data.normalized", output_path="data.persisted"),
 }
 
 flow = Flow.from_dsl(
@@ -35,7 +35,7 @@ context = {}
 result = flow.run(context)
 ```
 
-3. Verify the context: `context["payloads"]` maps node IDs to outputs and `context["steps"]` tracks ordering.
+3. Verify the context: `context["payloads"]` maps node IDs to outputs and `context["data"]["persisted"]` holds the final payload. `context["steps"]` tracks ordering.
 4. Inject a failure (raise in `transform`) to observe fail-fast behavior. `context["failed_node_id"]` and related keys capture diagnostics.
 
 ## 3. Branching with Routing

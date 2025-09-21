@@ -9,20 +9,15 @@ from illumo_flow import Routing
 
 
 def extract(context: Dict[str, Any], payload: Any) -> Dict[str, Any]:
-    data = {"customer_id": 42, "source": "demo"}
-    context.setdefault("outputs", {})["raw"] = data
-    return data
+    return {"customer_id": 42, "source": "demo"}
 
 
 def transform(context: Dict[str, Any], payload: Any) -> Dict[str, Any]:
-    raw = payload or context.get("outputs", {}).get("raw", {})
-    transformed = {**raw, "normalized": True}
-    context.setdefault("outputs", {})["normalized"] = transformed
-    return transformed
+    raw = payload or {}
+    return {**raw, "normalized": True}
 
 
 def load(context: Dict[str, Any], payload: Any) -> str:
-    context.setdefault("outputs", {})["persisted"] = True
     return "persisted"
 
 
@@ -35,25 +30,19 @@ def classify(context: Dict[str, Any], payload: Any) -> None:
 
 
 def approve(context: Dict[str, Any], payload: Any) -> str:
-    context.setdefault("outputs", {})["decision"] = "approved"
     return "approved"
 
 
 def reject(context: Dict[str, Any], payload: Any) -> str:
-    context.setdefault("outputs", {})["decision"] = "rejected"
     return "rejected"
 
 
-def manual_review(context: Dict[str, Any], payload: Any) -> str:
-    ticket = {"id": "TICKET-1", "status": "queued"}
-    context.setdefault("outputs", {})["review_ticket"] = ticket
-    return "manual"
+def manual_review(context: Dict[str, Any], payload: Any) -> Dict[str, Any]:
+    return {"id": "TICKET-1", "status": "queued"}
 
 
 def seed(context: Dict[str, Any], payload: Any) -> Dict[str, Any]:
-    customer = {"id": 1, "segment": "SMB"}
-    context.setdefault("inputs", {})["customer"] = customer
-    return customer
+    return {"id": 1, "segment": "SMB"}
 
 
 def enrich_geo(context: Dict[str, Any], payload: Any) -> Dict[str, Any]:
@@ -65,23 +54,18 @@ def enrich_risk(context: Dict[str, Any], payload: Any) -> Dict[str, Any]:
 
 
 def merge_enrichment(context: Dict[str, Any], payload: Any) -> Dict[str, Any]:
-    geo = payload.get("geo") if isinstance(payload, dict) else {}
-    risk = payload.get("risk") if isinstance(payload, dict) else {}
-    profile = {"geo": geo, "risk": risk}
-    context.setdefault("outputs", {})["profile"] = profile
-    return profile
+    payload = payload or {}
+    geo = payload.get("geo", {})
+    risk = payload.get("risk", {})
+    return {"geo": geo, "risk": risk}
 
 
 def call_api_with_timeout(context: Dict[str, Any], payload: Any) -> Dict[str, Any]:
-    response = {"status": 200, "body": {"message": "ok"}}
-    context.setdefault("outputs", {})["api_response"] = response
-    return response
+    return {"status": 200, "body": {"message": "ok"}}
 
 
 def parse_response(context: Dict[str, Any], payload: Any) -> Dict[str, Any]:
-    body = (payload or {}).get("body", {})
-    context.setdefault("outputs", {})["parsed"] = body
-    return body
+    return (payload or {}).get("body", {})
 
 
 def guard_threshold(context: Dict[str, Any], payload: Any) -> None:

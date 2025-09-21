@@ -28,6 +28,7 @@
 - Publish metadata via `describe()` to support tooling and validation, enumerating expected context inputs/outputs so Flow can prime namespaces.
 - Respect single-responsibility: one node should own one unit of work or decision boundary.
 - Either set a static successor (`self.next_route`) during initialization or optionally attach a `Routing` entry to the returned context at runtime.
+- Use `input_path` / `output_path` (or DSL `context.input` / `context.output`) to read and write payloads from specific context locations.
 - Flow primes the context with required namespaces so nodes can read/write using standard dictionary semantics.
 - Flow assigns graph-level node identifiers when registering the graph (typically from DSL/config keys); node instances remain identifier-agnostic so the same instance can be reused across flows.
 - Implementations may generate private instance-scope UUIDs for metrics, but these must stay internal and never leak into routing or context keys.
@@ -45,6 +46,7 @@
 - Flow initializes reserved namespaces (`context["joins"]`, `context["routing"]`, etc.) before execution so nodes can operate without helper utilities.
 - Reserved location for routing decisions: `context["routing"][node_id] = Routing` using plain dictionary assignment.
 - `context["payloads"]`: last payload emitted by each node; Flow seeds entry payloads and nodes should update their slot when producing outputs.
+- Nodes may store additional outputs via configured paths (`context.output`), and reference inputs via `context.input` without manually navigating nested dictionaries.
 - Flow may read `describe()` metadata (for example, declared `context_inputs` / `context_outputs`) to pre-create or validate additional keys while keeping the public API minimal.
 
 ## Routing Design

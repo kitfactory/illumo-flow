@@ -21,7 +21,12 @@ def build_flow(example):
     for node_id, node_cfg in example["dsl"]["nodes"].items():
         callable_path = node_cfg["callable"].split(".")[-1]
         func = getattr(ops, callable_path)
-        node = FunctionNode(func)
+        context_cfg = node_cfg.get("context", {})
+        node = FunctionNode(
+            func,
+            input_path=context_cfg.get("input"),
+            output_path=context_cfg.get("output"),
+        )
         if "default_route" in node_cfg:
             node.default_route = node_cfg["default_route"]
         nodes[node_id] = node
@@ -38,6 +43,8 @@ def test_examples_run_without_error(example):
     assert context["payloads"]  # node outputs are recorded
     assert example["dsl"]["entry"] in flow.nodes
     assert result in context["payloads"].values()
+    if example["id"] == "linear_etl":
+        assert context["data"]["persisted"] == "persisted"
 
 
 def test_join_node_receives_parent_dictionary():
@@ -62,3 +69,36 @@ def test_join_node_receives_parent_dictionary():
         "A": {"label": "A"},
         "B": {"label": "B"},
     }
+
+
+def test_context_paths_are_honored():
+    nodes = {
+        "extract": FunctionNode(
+            ops.extract,
+            output_path="data.raw",
+        ),
+        "transform": FunctionNode(
+            ops.transform,
+            input_path="data.raw",
+            output_path="data.normalized",
+        ),
+        "load": FunctionNode(
+            ops.load,
+            input_path="data.normalized",
+            output_path="data.persisted",
+        ),
+    }
+
+    flow = Flow.from_dsl(
+        nodes=nodes,
+        entry="extract",
+        edges=["extract >> transform", "transform >> load"],
+    )
+
+    ctx = {}
+    result = flow.run(ctx)
+
+    assert result == "persisted"
+    assert ctx["data"]["raw"]["customer_id"] == 42
+    assert ctx["data"]["normalized"]["normalized"] is True
+    assert ctx["data"]["persisted"] == "persisted"

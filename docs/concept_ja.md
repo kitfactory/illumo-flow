@@ -27,10 +27,10 @@
 ```python
 from illumo import Flow, FunctionNode
 
-start = FunctionNode(lambda ctx, x: x, name="start")
-A     = FunctionNode(lambda ctx, x: f"A:{x}", name="A")
-B     = FunctionNode(lambda ctx, x: f"B:{x}", name="B")
-join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join")
+start = FunctionNode(lambda ctx, x: x, name="start", output_path="data.start")
+A     = FunctionNode(lambda ctx, x: f"A:{x}", name="A", input_path="data.start", output_path="data.A")
+B     = FunctionNode(lambda ctx, x: f"B:{x}", name="B", input_path="data.start", output_path="data.B")
+join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join", input_path="joins.join", output_path="data.join")
 
 flow = Flow.from_dsl(
     nodes={"start": start, "A": A, "B": B, "join": join},
@@ -65,15 +65,26 @@ flow:
     start:
       type: illumo.nodes.FunctionNode
       callable: start_func
+      context:
+        output: data.start
     A:
       type: illumo.nodes.FunctionNode
       callable: node_a
+      context:
+        input: data.start
+        output: data.A
     B:
       type: illumo.nodes.FunctionNode
       callable: node_b
+      context:
+        input: data.start
+        output: data.B
     join:
       type: illumo.nodes.FunctionNode
       callable: join_func
+      context:
+        input: joins.join
+        output: data.join
   edges:
     - start >> (A | B)
     - (A & B) >> join
@@ -82,6 +93,7 @@ flow:
 - パースされた設定は `Flow` が期待する内部辞書形式に正規化され、コード定義フローとの共存が可能
 - ノード定義には `summary` や `inputs`、`returns` といったメタデータを含め、`node.describe()` に反映してドキュメント生成や検証に活用できる
 - カスタムローダーを用いれば、許可モジュールやサンドボックス方針など環境制約を実行前に検証できる
+- 追加で `context.input` / `context.output` を指定すると、共有コンテキストのどこから読み書きするかを制御できる
 
 ## 実行時のふるまい
 - 並列実行: 依存が揃ったノードは遅延なく起動

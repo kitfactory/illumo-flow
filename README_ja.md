@@ -6,6 +6,7 @@
 - `Flow` オーケストレータと DSL エッジ (`A >> B`, `(A & B) >> C`)
 - `(context, payload)` シグネチャをとる `Node` / `FunctionNode`
 - ステップ・ルーティング・ジョインバッファ・ペイロードを扱うコンテキスト名前空間
+- ノード単位で `context.input` / `context.output` を指定してコンテキストへ読み書き
 - `Routing(next, confidence, reason)` による動的ルーティング
 - ETL / 分岐 / 並列ジョイン / ノード内タイムアウト / 早期停止のサンプルとスモークテスト
 
