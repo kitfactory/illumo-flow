@@ -177,7 +177,7 @@ class Node:
         outputs: Optional[Any] = None,
         metadata: Optional[Mapping[str, Any]] = None,
     ) -> None:
-        self.name = name or self.__class__.__name__
+        self.name = name
         self.next_route = next_route
         self.default_route = default_route
         self._inputs: List[Tuple[str, str]] = _normalize_inputs_spec(inputs)
@@ -191,6 +191,8 @@ class Node:
         """Bind the runtime-assigned node identifier."""
 
         self._node_id = node_id
+        if not self.name:
+            self.name = node_id
 
     @property
     def node_id(self) -> str:
@@ -208,7 +210,7 @@ class Node:
 
     def describe(self) -> Dict[str, Any]:
         base = {
-            "name": self.name,
+            "name": self.name or self._node_id,
             "module": self.__class__.__module__,
             "class": self.__class__.__name__,
             "next_route": self.next_route,

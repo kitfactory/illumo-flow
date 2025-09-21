@@ -31,6 +31,7 @@
 - Use `inputs` / `outputs` (or DSL `context.inputs` / `context.outputs`) to read and write payloads from specific context locations.
 - Flow primes the context with required namespaces so nodes can read/write using standard dictionary semantics.
 - Flow assigns graph-level node identifiers when registering the graph (typically from DSL/config keys); node instances remain identifier-agnostic so the same instance can be reused across flows.
+- If no explicit `name` is provided, Flow falls back to the node ID for clarity in logs and diagnostics.
 - Implementations may generate private instance-scope UUIDs for metrics, but these must stay internal and never leak into routing or context keys.
 - Nodes automatically wait for all upstream dependencies defined by edges; no additional declarations are required for fan-in.
 - When participating in joins, return structured payloads that downstream consumers can merge without collision.
