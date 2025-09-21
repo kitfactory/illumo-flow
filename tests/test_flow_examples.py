@@ -22,8 +22,6 @@ def build_flow(example):
         callable_path = node_cfg["callable"].split(".")[-1]
         func = getattr(ops, callable_path)
         node = FunctionNode(func)
-        for parent in node_cfg.get("requires", []):
-            node.requires(parent)
         if "default_route" in node_cfg:
             node.default_route = node_cfg["default_route"]
         nodes[node_id] = node
@@ -40,3 +38,27 @@ def test_examples_run_without_error(example):
     assert context["payloads"]  # node outputs are recorded
     assert example["dsl"]["entry"] in flow.nodes
     assert result in context["payloads"].values()
+
+
+def test_join_node_receives_parent_dictionary():
+    def make_value(label):
+        return lambda ctx, payload: {"label": label}
+
+    nodes = {
+        "start": FunctionNode(lambda ctx, payload: payload),
+        "A": FunctionNode(make_value("A")),
+        "B": FunctionNode(make_value("B")),
+        "join": FunctionNode(lambda ctx, payload: payload["A"]["label"] + payload["B"]["label"]),
+    }
+    flow = Flow.from_dsl(
+        nodes=nodes,
+        entry="start",
+        edges=["start >> (A | B)", "(A & B) >> join"],
+    )
+    ctx = {}
+    result = flow.run(ctx, user_input="ignored")
+    assert result == "AB"
+    assert ctx["joins"]["join"] == {
+        "A": {"label": "A"},
+        "B": {"label": "B"},
+    }

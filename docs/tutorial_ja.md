@@ -21,8 +21,8 @@ from examples import ops
 
 nodes = {
     "extract": FunctionNode(ops.extract),
-    "transform": FunctionNode(ops.transform).requires("extract"),
-    "load": FunctionNode(ops.load).requires("transform"),
+    "transform": FunctionNode(ops.transform),
+    "load": FunctionNode(ops.load),
 }
 
 flow = Flow.from_dsl(
@@ -55,7 +55,7 @@ python -m examples confidence_router
 python -m examples parallel_enrichment
 ```
 
-2. `seed` から `geo` と `risk` に分岐し、`merge` が `.requires("geo", "risk")` で合流します。
+2. `seed` から `geo` と `risk` に分岐し、`merge` は両方の親ノードから結果が揃った時点で `{ "geo": ..., "risk": ... }` を受け取ります。
 3. `context["joins"]["merge"]` を確認すると、両親の結果が揃うまでバッファされ、揃った時点で `{ "geo": ..., "risk": ... }` が `merge` に渡されます。
 
 ## 5. ノード内タイムアウトと早期停止
@@ -69,8 +69,8 @@ python -m examples parallel_enrichment
 
 ## 6. 独自フローの作成手順
 1. `(context, payload)` 形式のノード関数を作成し、`context["payloads"][node_id]` に出力を保存します。必要に応じて `describe()` に `context_inputs` / `context_outputs` を記述。
-2. ノード辞書を用意し `.requires(...)` で依存関係を宣言。
-3. `Flow.from_dsl` でエッジを定義（文字列 DSL または `(src, dst)` タプル）。
+2. ノード辞書を用意する。
+3. `Flow.from_dsl` でエッジを定義（文字列 DSL または `(src, dst)` タプル）。複数の親エッジを持つノードは自動的に全て完了するまで待機します。
 4. Flow を実行し、`context["routing"]` や `context["joins"]`、`context["errors"]` をチェックして挙動を確認。
 
 ## 7. 次のステップ

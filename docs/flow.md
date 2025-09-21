@@ -11,7 +11,7 @@
 - **Edge**: Declared relationship in the DSL/config showing possible successor nodes.
 - **Routing**: Context entry supplied by a node to tell Flow which successor edges to activate when routing is not predetermined.
 - **Context**: Mutable dictionary shared by all nodes for passing payloads, metadata, and diagnostics.
-- **Join Target**: Node that declares `requires(...)` and therefore waits for multiple upstream results.
+- **Join Target**: Node with multiple upstream edges that must receive all parent outputs before executing.
 
 ## Core Responsibilities
 ### Flow
@@ -31,7 +31,7 @@
 - Flow primes the context with required namespaces so nodes can read/write using standard dictionary semantics.
 - Flow assigns graph-level node identifiers when registering the graph (typically from DSL/config keys); node instances remain identifier-agnostic so the same instance can be reused across flows.
 - Implementations may generate private instance-scope UUIDs for metrics, but these must stay internal and never leak into routing or context keys.
-- Use the fluent `requires(...)` helper to declare parent dependencies in code (`FunctionNode(...).requires("A", "B")`).
+- Nodes automatically wait for all upstream dependencies defined by edges; no additional declarations are required for fan-in.
 - When participating in joins, return structured payloads that downstream consumers can merge without collision.
 - Avoid mutating context namespaces not owned by the node beyond the reserved keys prepared by Flow.
 
@@ -71,7 +71,7 @@
 - Nodes can broadcast by setting `Routing["next"]` to a collection (e.g., `["B", "C"]`).
 
 ### Fan-In and Joins
-- Nodes that declare `.requires("A", "B")` are registered as join targets.
+- Nodes with multiple incoming edges are treated as join targets automatically.
 - Flow tracks pending parents via counters (`pending[(join_id)] -> remaining_count`).
 - Each upstream completion stores its payload in `context["joins"][join_id][parent_id]`.
 - Once the counter reaches zero, the join node is moved to the ready queue with an aggregated input payload.
@@ -125,7 +125,7 @@
 ## Example Flows for Testing
 - **Linear ETL chain**: `extract >> transform >> load`; validates deterministic ordering, context accumulation, and failure propagation when `transform` raises.
 - **Router with confidence scoring**: `classify` writes `Routing` with `next="approve"` or `"reject"`; exercises dynamic routing, auditing of `confidence`, and fallback to `default_route` when confidence is low.
-- **Parallel enrichment with join**: `start >> (geo | risk)` followed by `merge.requires("geo", "risk")`; confirms parallel scheduling, join buffering in `context["joins"]`, and deterministic aggregation.
+- **Parallel enrichment with join**: `start >> (geo | risk)` followed by `merge`; confirms parallel scheduling, join buffering in `context["joins"]`, and deterministic aggregation.
 - **Node-managed timeout**: `call_api` enforces its own timeout/retry logic and raises on failure; demonstrates that Flow remains fail-fast while nodes encapsulate external resiliency.
 - **Early-stop watchdog**: `guard` places `Routing["next"] = None` when thresholds trigger; verifies graceful termination, execution log completeness, and absence of stray tasks after shutdown.
 

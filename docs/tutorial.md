@@ -21,8 +21,8 @@ from examples import ops
 
 nodes = {
     "extract": FunctionNode(ops.extract),
-    "transform": FunctionNode(ops.transform).requires("extract"),
-    "load": FunctionNode(ops.load).requires("transform"),
+    "transform": FunctionNode(ops.transform),
+    "load": FunctionNode(ops.load),
 }
 
 flow = Flow.from_dsl(
@@ -55,7 +55,7 @@ python -m examples confidence_router
 python -m examples parallel_enrichment
 ```
 
-2. `seed` fans to `geo` and `risk`; `merge` declares `.requires("geo", "risk")` and receives the aggregated payload `{ "geo": ..., "risk": ... }`.
+2. `seed` fans to `geo` and `risk`; because `merge` has incoming edges from both nodes, it receives the aggregated payload `{ "geo": ..., "risk": ... }` once each parent completes.
 3. Inspect `context["joins"]["merge"]` to see how partial results are buffered until all parents finish.
 
 ## 5. Node-Managed Timeout and Early Stop
@@ -69,8 +69,8 @@ python -m examples parallel_enrichment
 
 ## 6. Creating Your Own Flow
 1. Write callable nodes with `(context, payload)` signature. Store results under `context["payloads"][node_id]` and document usage in `describe()` metadata.
-2. Compose nodes in a dict, declare dependencies with `.requires(...)`.
-3. Build a flow via `Flow.from_dsl` using edge strings (`"A >> B"`, `"(A & B) >> join"`) or explicit tuples.
+2. Compose nodes in a dict.
+3. Build a flow via `Flow.from_dsl` using edge strings (`"A >> B"`, `"(A & B) >> join"`) or explicit tuples. Any node with multiple incoming edges automatically waits for all parents before running.
 4. Run the flow, inspect routing (`context["routing"]`), joins (`context["joins"]`), and diagnostics (`context["steps"]`, `context["errors"]`).
 
 ## 7. Next Steps

@@ -30,7 +30,7 @@ from illumo import Flow, FunctionNode
 start = FunctionNode(lambda ctx, x: x, name="start")
 A     = FunctionNode(lambda ctx, x: f"A:{x}", name="A")
 B     = FunctionNode(lambda ctx, x: f"B:{x}", name="B")
-join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join").requires("A", "B")
+join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join")
 
 flow = Flow.from_dsl(
     nodes={"start": start, "A": A, "B": B, "join": join},
@@ -74,7 +74,6 @@ flow:
     join:
       type: illumo.nodes.FunctionNode
       callable: join_func
-      requires: [A, B]
   edges:
     - start >> (A | B)
     - (A & B) >> join
@@ -87,7 +86,7 @@ flow:
 ## 実行時のふるまい
 - 並列実行: 依存が揃ったノードは遅延なく起動
 - ルーター分岐: `|` はルーター決定に従い、`&` は強制的に全ノードへ送信
-- 暗黙の JOIN: `.requires(...)` で指定した入力を `{"A": ..., "B": ...}` のような辞書に自動整形
+- 暗黙の JOIN: 複数の親エッジを持つノードは `{"A": ..., "B": ...}` のように親ノードの出力を辞書で受け取る
 - エラー処理: フェイルファスト。`Flow.run` は最初の失敗で例外を送出し、診断情報を `ctx` に保存
 
 ```python
@@ -105,7 +104,7 @@ print(ctx["errors"])
 ### ルーティング実装ガイドライン
 1. DSL 配線で次ノードが一意に決まる場合（例: `A >> B`）は `self.next_routing = "B"` を設定
 2. 実行時に分岐が決まる場合は `next_routing` を設定せず、`context["routing"]`（または設定したキー）へ `RoutingInfo` を書き込む
-3. `.requires(...)` を持つ合流ノードは、結合結果を `context["joins"]["join_id"]` のような名前空間に保存し後続ノードが参照できるようにする
+3. 複数の親を持つ合流ノードは、結合結果を `context["joins"]["join_id"]` のような名前空間に保存し後続ノードが参照できるようにする
 4. `next_routing` もルーティング情報も無い場合は `Flow` がルーティングエラーを送出（あるいは `default_route` へ退避）し、未定義の遷移を検知する
 
 ## バックステージ機能

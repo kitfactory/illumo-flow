@@ -40,17 +40,11 @@ class Node:
         name: Optional[str] = None,
         next_route: Optional[str] = None,
         default_route: Optional[str] = None,
-        requires: Optional[Iterable[str]] = None,
         metadata: Optional[Mapping[str, Any]] = None,
     ) -> None:
         self.name = name or self.__class__.__name__
         self.next_route = next_route
         self.default_route = default_route
-        self._requires: List[str] = []
-        if requires:
-            for node_id in requires:
-                if node_id not in self._requires:
-                    self._requires.append(node_id)
         self._metadata: Dict[str, Any] = dict(metadata or {})
         self._node_id: Optional[str] = None
 
@@ -69,19 +63,6 @@ class Node:
 
     # --- Contracts ----------------------------------------------------------
 
-    def requires_nodes(self, *node_ids: str) -> "Node":
-        for node_id in node_ids:
-            if node_id not in self._requires:
-                self._requires.append(node_id)
-        return self
-
-    def requires(self, *node_ids: str) -> "Node":
-        return self.requires_nodes(*node_ids)
-
-    @property
-    def required_parents(self) -> Tuple[str, ...]:
-        return tuple(self._requires)
-
     def run(self, user_input: Any = None, context: Optional[MutableMapping[str, Any]] = None) -> MutableMapping[str, Any]:
         raise NotImplementedError
 
@@ -93,7 +74,6 @@ class Node:
             "name": self.name,
             "module": self.__class__.__module__,
             "class": self.__class__.__name__,
-            "requires": sorted(self._requires),
             "next_route": self.next_route,
             "default_route": self.default_route,
         }
@@ -119,14 +99,12 @@ class FunctionNode(Node):
         name: Optional[str] = None,
         next_route: Optional[str] = None,
         default_route: Optional[str] = None,
-        requires: Optional[Iterable[str]] = None,
         metadata: Optional[Mapping[str, Any]] = None,
     ) -> None:
         super().__init__(
             name=name,
             next_route=next_route,
             default_route=default_route,
-            requires=requires,
             metadata=metadata,
         )
         self._func = func
@@ -181,21 +159,14 @@ class Flow:
             self.adjacency.setdefault(node_id, set())
             self.reverse.setdefault(node_id, set())
 
-        self.requires_map: Dict[str, Tuple[str, ...]] = {
-            node_id: node.required_parents for node_id, node in self.nodes.items() if node.required_parents
-        }
-
-        # Validate requires are satisfied by edges
-        for node_id, required in self.requires_map.items():
-            missing = set(required) - self.reverse[node_id]
-            if missing:
-                raise FlowError(
-                    f"Node '{node_id}' declares requires {sorted(required)} but edges missing parents {sorted(missing)}"
-                )
-
-        self.dependency_counts: Dict[str, int] = {
+        self.parent_counts: Dict[str, int] = {
             node_id: len(parents) for node_id, parents in self.reverse.items()
         }
+        self.parent_order: Dict[str, Tuple[str, ...]] = {
+            node_id: tuple(sorted(parents)) for node_id, parents in self.reverse.items()
+        }
+
+        self.dependency_counts: Dict[str, int] = dict(self.parent_counts)
 
     # ------------------------------------------------------------------
     @classmethod
@@ -295,14 +266,25 @@ class Flow:
                 continue
 
             for target in successors:
-                remaining[target] = remaining.get(target, len(self.reverse[target]))
+                remaining[target] = remaining.get(target, self.parent_counts[target])
                 remaining[target] = max(0, remaining[target] - 1)
 
-                if target in self.requires_map:
+                parent_count = self.parent_counts.get(target, 0)
+                if parent_count > 1:
+                    joins_map = context.setdefault("joins", {})
+                    join_entry = joins_map.setdefault(target, {})
+                    join_entry[node_id] = output_value
                     join_buffers[target][node_id] = output_value
-                    if len(join_buffers[target]) == len(self.requires_map[target]):
-                        ordered = {key: join_buffers[target][key] for key in self.requires_map[target]}
-                        context["payloads"][target] = ordered
+                    if len(join_buffers[target]) == parent_count:
+                        ordered_parents = self.parent_order.get(target, tuple(join_buffers[target].keys()))
+                        aggregated = {
+                            parent: join_buffers[target][parent]
+                            for parent in ordered_parents
+                            if parent in join_buffers[target]
+                        }
+                        context["payloads"][target] = aggregated
+                        joins_map[target] = aggregated
+                        join_buffers[target].clear()
                 else:
                     context["payloads"][target] = output_value
 

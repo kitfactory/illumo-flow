@@ -30,7 +30,7 @@ from illumo import Flow, FunctionNode
 start = FunctionNode(lambda ctx, x: x, name="start")
 A     = FunctionNode(lambda ctx, x: f"A:{x}", name="A")
 B     = FunctionNode(lambda ctx, x: f"B:{x}", name="B")
-join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join").requires("A", "B")
+join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join")
 
 flow = Flow.from_dsl(
     nodes={"start": start, "A": A, "B": B, "join": join},
@@ -74,7 +74,6 @@ flow:
     join:
       type: illumo.nodes.FunctionNode
       callable: join_func
-      requires: [A, B]
   edges:
     - start >> (A | B)
     - (A & B) >> join
@@ -87,7 +86,7 @@ flow:
 ## Runtime Behavior
 - Parallel execution: every node with satisfied dependencies starts without delay
 - Router branches: `|` consumes router decisions, `&` always dispatches to all participants
-- Implicit join: `.requires(...)` gathers inputs into a dictionary (for example `{"A": ..., "B": ...}`)
+- Implicit join: nodes with multiple incoming edges receive a dictionary of parent outputs (e.g. `{"A": ..., "B": ...}`)
 - Error handling: fail-fast—`Flow.run` raises on the first failure and records diagnostics in `ctx`
 
 ```python
@@ -105,7 +104,7 @@ print(ctx["errors"])
 ### Routing Guidelines
 1. Set `self.next_routing = "B"` when the DSL wiring uniquely determines the successor (e.g., `A >> B`).
 2. Omit `next_routing` if runtime logic decides the next hop; write a `RoutingInfo` instance to `context["routing"]` (or a configured key) instead.
-3. Merge nodes that declare `.requires(...)` should store their combined payload in a predictable namespace such as `context["joins"]["join_id"]`.
+3. Nodes with multiple parents should store their combined payload in a predictable namespace such as `context["joins"]["join_id"]`.
 4. When neither `next_routing` nor context routing exists, `Flow` raises a routing error (or falls back to `default_route`) so undefined transitions stay detectable.
 
 ## Backstage Capabilities

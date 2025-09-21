@@ -29,8 +29,6 @@ def build_flow(example_id: str) -> Flow:
         func_name = node_cfg["callable"].split(".")[-1]
         func = getattr(ops, func_name)
         node = FunctionNode(func)
-        for parent in node_cfg.get("requires", []):
-            node.requires(parent)
         if "default_route" in node_cfg:
             node.default_route = node_cfg["default_route"]
         nodes[node_id] = node

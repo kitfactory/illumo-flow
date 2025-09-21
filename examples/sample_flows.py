@@ -148,7 +148,6 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_inputs": ["joins.enrich.geo", "joins.enrich.risk"],
                         "context_outputs": ["outputs.profile"],
                     },
-                    "requires": ["geo", "risk"],
                 },
             },
             "edges": [
