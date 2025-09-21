@@ -1,45 +1,68 @@
 # illumo-flow
 
-宣言的な DSL と Fail-Fast 実行モデルを備えたワークフローオーケストレーション基盤です。
+宣言的 DSL と Fail-Fast 実行モデルを備えたワークフローオーケストレーション基盤です。
 
-## 特徴
-- `Flow` オーケストレータと DSL エッジ (`A >> B`, `(A & B) >> C`)
-- `(context, payload)` シグネチャをとる `Node` / `FunctionNode`
-- ステップ・ルーティング・ジョインバッファ・ペイロードを扱うコンテキスト名前空間
-- ノード単位で `context.input` / `context.output` を指定してコンテキストへ読み書き
-- `Routing(next, confidence, reason)` による動的ルーティング
-- ETL / 分岐 / 並列ジョイン / ノード内タイムアウト / 早期停止のサンプルとスモークテスト
-
-## セットアップ
+## インストール
 ```bash
-uv venv --seed
-source .venv/bin/activate
-pip install -e .
+pip install illumo-flow
 ```
 
-### サンプルフローの実行
-CLI から同梱サンプルを起動できます:
+## クイックスタート
+```python
+from illumo_flow import Flow, FunctionNode
+
+# コンテキスト辞書を扱うノード関数を定義
+
+def extract(ctx, _):
+    return {"customer_id": 42, "source": "demo"}
+
+def transform(ctx, payload):
+    return {**payload, "normalized": True}
+
+def load(ctx, payload):
+    return f"stored:{payload['customer_id']}"
+
+nodes = {
+    "extract": FunctionNode(extract, output_path="data.raw"),
+    "transform": FunctionNode(transform, input_path="data.raw", output_path="data.normalized"),
+    "load": FunctionNode(load, input_path="data.normalized", output_path="data.persisted"),
+}
+
+flow = Flow.from_dsl(
+    nodes=nodes,
+    entry="extract",
+    edges=["extract >> transform", "transform >> load"],
+)
+
+context = {}
+result = flow.run(context)
+print(result)                       # stored:42
+print(context["data"]["persisted"])  # stored:42
+```
+
+## サンプル / CLI
+GitHub リポジトリには CLI（例: `python -m examples linear_etl`）とサンプル DSL が同梱されています。利用する場合はリポジトリを取得してください。
 ```bash
+git clone https://github.com/kitfactory/illumo-flow.git
+cd illumo-flow
 python -m examples linear_etl
-python -m examples confidence_router
-python -m examples parallel_enrichment
-python -m examples node_managed_timeout
-python -m examples early_stop_watchdog
 ```
 
-### チュートリアル
-ステップバイステップの学習は [docs/tutorial_ja.md](docs/tutorial_ja.md) （英語版は [docs/tutorial.md](docs/tutorial.md)）をご覧ください。
-
-## テスト
+## テスト（リポジトリ利用時）
 ```bash
 pytest
 ```
-`pyproject.toml` で `pythonpath = ["src"]` を設定しているため、`src` レイアウトでもそのままテストを実行できます。
+`tests/test_flow_examples.py` がサンプル DSL を使ったスモークテストを提供します。
 
 ## ドキュメント
-- 設計/アーキテクチャ: [docs/flow_ja.md](docs/flow_ja.md) / 英語版 [docs/flow.md](docs/flow.md)
-- コンセプト概説: [docs/concept_ja.md](docs/concept_ja.md)
+- 英語版アーキテクチャ: [docs/flow.md](docs/flow.md)
+- 日本語版アーキテクチャ: [docs/flow_ja.md](docs/flow_ja.md)
+- コンセプト概説: [docs/concept.md](docs/concept.md) / [docs/concept_ja.md](docs/concept_ja.md)
+- チュートリアル: [docs/tutorial.md](docs/tutorial.md) / [docs/tutorial_ja.md](docs/tutorial_ja.md)
 
-## サンプル
-- ノード実装: [examples/ops.py](examples/ops.py)
-- DSL 定義と CLI: [examples/sample_flows.py](examples/sample_flows.py) / [examples/__main__.py](examples/__main__.py)
+## ハイライト
+- DSL エッジ (`A >> B`, `(A & B) >> C`)
+- `context.input` / `context.output` でコンテキスト上の任意パスに読み書き
+- `Routing(next, confidence, reason)` による動的ルーティング
+- 複数親ノードは自動的にジョイン処理
+- ETL / 分岐 / 並列ジョイン / タイムアウト / 早期停止サンプル

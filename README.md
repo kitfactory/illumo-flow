@@ -2,45 +2,67 @@
 
 Workflow orchestration primitives featuring declarative DSL wiring, routing control, and fail-fast execution.
 
-## Features
-- `Flow` orchestrator with DSL edges (`A >> B`, `(A & B) >> C`)
-- `Node` / `FunctionNode` abstractions using `(context, payload)` signature
-- Context namespaces for steps, routing decisions, join buffers, and payloads
-- Per-node context wiring via `context.input` / `context.output` paths
-- Routing metadata via `Routing(next, confidence, reason)`
-- Examples and smoke tests covering ETL, dynamic routing, fan-out/fan-in, timeout handling, and early stop
-
-## Getting Started
+## Installation
 ```bash
-uv venv --seed
-source .venv/bin/activate
-pip install -e .
+pip install illumo-flow
 ```
 
-### Run Sample Flows
-Use the CLI to execute the bundled examples:
+## Quick Example
+```python
+from illumo_flow import Flow, FunctionNode
+
+# Define lightweight callables (each works on a shared context dict)
+def extract(ctx, _):
+    return {"customer_id": 42, "source": "demo"}
+
+def transform(ctx, payload):
+    return {**payload, "normalized": True}
+
+def load(ctx, payload):
+    return f"stored:{payload['customer_id']}"
+
+nodes = {
+    "extract": FunctionNode(extract, output_path="data.raw"),
+    "transform": FunctionNode(transform, input_path="data.raw", output_path="data.normalized"),
+    "load": FunctionNode(load, input_path="data.normalized", output_path="data.persisted"),
+}
+
+flow = Flow.from_dsl(
+    nodes=nodes,
+    entry="extract",
+    edges=["extract >> transform", "transform >> load"],
+)
+
+context = {}
+result = flow.run(context)
+print(result)                 # stored:42
+print(context["data"]["persisted"])  # stored:42
+```
+
+## Examples & CLI
+The GitHub repository ships reference examples and a CLI (e.g. `python -m examples linear_etl`).
+Clone the repo if you want to explore them locally:
 ```bash
+git clone https://github.com/kitfactory/illumo-flow.git
+cd illumo-flow
 python -m examples linear_etl
-python -m examples confidence_router
-python -m examples parallel_enrichment
-python -m examples node_managed_timeout
-python -m examples early_stop_watchdog
 ```
 
-### Learn by Tutorial
-Follow the step-by-step guide in [docs/tutorial.md](docs/tutorial.md) (or [docs/tutorial_ja.md](docs/tutorial_ja.md)) to build flows, manage routing, and understand context contracts.
-
-## Testing
+## Testing (repository clone)
 ```bash
 pytest
 ```
-The test suite leverages `tests/test_flow_examples.py`, validating all example DSL definitions using the `src` package layout configured in `pyproject.toml`.
+The suite in `tests/test_flow_examples.py` validates the sample DSL flows using the `src` layout configured in `pyproject.toml`.
 
 ## Documentation
 - Architecture and API design: [docs/flow.md](docs/flow.md)
 - Japanese version: [docs/flow_ja.md](docs/flow_ja.md)
 - Concepts overview: [docs/concept.md](docs/concept.md)
+- Step-by-step tutorial: [docs/tutorial.md](docs/tutorial.md) / [docs/tutorial_ja.md](docs/tutorial_ja.md)
 
-## Examples
-- Source code: [examples/ops.py](examples/ops.py)
-- DSL definitions and CLI: [examples/sample_flows.py](examples/sample_flows.py), [python -m examples](examples/__main__.py)
+## Highlights
+- DSL edges such as `A >> B`, `(A & B) >> C`
+- `(context, payload)` callable interface with configurable context paths
+- Routing metadata via `Routing(next, confidence, reason)`
+- Built-in join handling (nodes with multiple parents automatically wait for all inputs)
+- Examples covering ETL, dynamic routing, fan-out/fan-in, timeout handling, and early stop

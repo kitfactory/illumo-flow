@@ -1,79 +1,141 @@
 # Flow Tutorial
 
-## 1. Quick Start
-- Create a virtual environment (`uv venv --seed`, then activate `.venv`).
-- Install the package in editable mode: `pip install -e .`.
-- Run the simplest flow example:
+This tutorial assumes you installed the library from PyPI:
 
 ```bash
-python -m examples linear_etl
+pip install illumo-flow
 ```
 
-You should see the final payload (`persisted`), executed steps, and node payloads recorded in the context.
+A Python REPL or script is sufficient—no repository clone is required unless you want to explore the optional examples.
 
-## 2. Building Your First Flow (Linear ETL)
-1. Inspect `examples/ops.py` and review `extract`, `transform`, `load`. Each takes `(context, payload)` and stores results under `context["outputs"]` and `context["payloads"]`.
-2. Instantiate nodes and wire them:
-
+## 1. Minimal Linear Flow
 ```python
 from illumo_flow import Flow, FunctionNode
-from examples import ops
+
+def extract(ctx, _):
+    return {"customer_id": 42, "source": "demo"}
+
+def transform(ctx, payload):
+    return {**payload, "normalized": True}
+
+def store(ctx, payload):
+    return f"stored:{payload['customer_id']}"
 
 nodes = {
-    "extract": FunctionNode(ops.extract, output_path="data.raw"),
-    "transform": FunctionNode(ops.transform, input_path="data.raw", output_path="data.normalized"),
-    "load": FunctionNode(ops.load, input_path="data.normalized", output_path="data.persisted"),
+    "extract": FunctionNode(extract, output_path="data.raw"),
+    "transform": FunctionNode(transform, input_path="data.raw", output_path="data.normalized"),
+    "store": FunctionNode(store, input_path="data.normalized", output_path="data.persisted"),
 }
 
-flow = Flow.from_dsl(
-    nodes=nodes,
-    entry="extract",
-    edges=["extract >> transform", "transform >> load"],
-)
-
+flow = Flow.from_dsl(nodes=nodes, entry="extract", edges=["extract >> transform", "transform >> store"])
 context = {}
 result = flow.run(context)
+print(result)                      # stored:42
+print(context["data"]["persisted"])  # stored:42
 ```
 
-3. Verify the context: `context["payloads"]` maps node IDs to outputs and `context["data"]["persisted"]` holds the final payload. `context["steps"]` tracks ordering.
-4. Inject a failure (raise in `transform`) to observe fail-fast behavior. `context["failed_node_id"]` and related keys capture diagnostics.
+## 2. Fail-Fast Behaviour
+Raise an exception inside `transform` and rerun. The flow stops immediately, filling diagnostic keys such as `context["failed_node_id"]`, `context["failed_message"]`, and `context["errors"]`.
 
-## 3. Branching with Routing
-1. Execute the router example:
+## 3. Dynamic Routing
+```python
+from illumo_flow import Flow, FunctionNode, Routing
 
-```bash
-python -m examples confidence_router
+def classify(ctx, payload):
+    ctx.setdefault("metrics", {})["score"] = 85
+    ctx["routing"]["classify"] = Routing(next="approve", confidence=90, reason="demo")
+
+nodes = {
+    "classify": FunctionNode(classify),
+    "approve": FunctionNode(lambda ctx, payload: "approved", output_path="decisions.auto"),
+    "reject": FunctionNode(lambda ctx, payload: "rejected", output_path="decisions.auto"),
+}
+
+flow = Flow.from_dsl(nodes=nodes, entry="classify", edges=["classify >> (approve | reject)"])
+ctx = {"inputs": {"application": {}}}
+flow.run(ctx)
+print(ctx["decisions"]["auto"])  # approved
+```
+If `Routing.next` is not provided, the flow follows all wired successors. `default_route` can be attached to a node when a fallback path is required.
+
+## 4. Fan-Out and Joins
+```python
+from illumo_flow import Flow, FunctionNode
+
+def seed(ctx, _):
+    return {"id": 1}
+
+def geo(ctx, payload):
+    return {"country": "JP"}
+
+def risk(ctx, payload):
+    return {"score": 0.2}
+
+def merge(ctx, payload):
+    return {"geo": payload["geo"], "risk": payload["risk"]}
+
+nodes = {
+    "seed": FunctionNode(seed, output_path="data.customer"),
+    "geo": FunctionNode(geo, input_path="data.customer", output_path="data.geo"),
+    "risk": FunctionNode(risk, input_path="data.customer", output_path="data.risk"),
+    "merge": FunctionNode(merge, input_path="joins.merge", output_path="data.profile"),
+}
+
+flow = Flow.from_dsl(nodes=nodes, entry="seed", edges=["seed >> (geo | risk)", "(geo & risk) >> merge"])
+ctx = {}
+flow.run(ctx)
+print(ctx["data"]["profile"])  # {'geo': {...}, 'risk': {...}}
+```
+Any node with multiple incoming edges automatically waits for all parents; their outputs are exposed via `context["joins"][node_id]`.
+
+## 5. Node-Managed Timeout / Retries
+Encapsulate external retries within the node:
+```python
+import time
+from illumo_flow import Flow, FunctionNode
+
+attempts = {"count": 0}
+
+def call_api(ctx, _):
+    attempts["count"] += 1
+    if attempts["count"] < 3:
+        time.sleep(0.1)
+        raise RuntimeError("temporary failure")
+    return {"status": 200}
+
+nodes = {
+    "call": FunctionNode(call_api, output_path="data.api_response"),
+}
+
+flow = Flow.from_dsl(nodes=nodes, entry="call", edges=[])
+ctx = {}
+flow.run(ctx)
+print(attempts["count"])  # 3
+```
+Flow remains fail-fast—retries or timeouts are entirely managed within the node implementation.
+
+## 6. Early Stop via Routing
+```python
+from illumo_flow import Flow, FunctionNode, Routing
+
+def guard(ctx, payload):
+    ctx["routing"]["guard"] = Routing(next=None, reason="threshold exceeded")
+
+nodes = {
+    "guard": FunctionNode(guard),
+    "downstream": FunctionNode(lambda ctx, payload: "should_not_run"),
+}
+
+flow = Flow.from_dsl(nodes=nodes, entry="guard", edges=["guard >> downstream"])
+ctx = {}
+flow.run(ctx)
+print(ctx["steps"])  # downstream never runs
 ```
 
-2. The `classify` node writes a `Routing` entry (`next`, `confidence`, `reason`) to `context["routing"]["classify"]`. Flow validates targets and respects `default_route` when none selected.
-3. Modify `examples/ops.classify` to force `manual_review` and rerun—notice the change in `steps` and `payloads`.
+## 7. Optional Repository Examples
+Cloning the repository gives access to the bundled CLI (`python -m examples <id>`) and pytest suite (`pytest`). These demonstrate larger flows built entirely from configuration.
 
-## 4. Parallel Enrichment and Joins
-1. Run the fan-out/fan-in flow:
-
-```bash
-python -m examples parallel_enrichment
-```
-
-2. `seed` fans to `geo` and `risk`; because `merge` has incoming edges from both nodes, it receives the aggregated payload `{ "geo": ..., "risk": ... }` once each parent completes.
-3. Inspect `context["joins"]["merge"]` to see how partial results are buffered until all parents finish.
-
-## 5. Node-Managed Timeout and Early Stop
-### Timeout Inside Nodes
-- `python -m examples node_managed_timeout`
-- `call_api_with_timeout` demonstrates retry/timeout logic handled inside the node. Flow remains fail-fast; `steps` shows recorded attempts.
-
-### Early Stop via Routing
-- `python -m examples early_stop_watchdog`
-- `guard` emits `Routing(next=None, reason=...)`, terminating the flow gracefully before downstream execution.
-
-## 6. Creating Your Own Flow
-1. Write callable nodes with `(context, payload)` signature. Store results under `context["payloads"][node_id]` and document usage in `describe()` metadata.
-2. Compose nodes in a dict.
-3. Build a flow via `Flow.from_dsl` using edge strings (`"A >> B"`, `"(A & B) >> join"`) or explicit tuples. Any node with multiple incoming edges automatically waits for all parents before running.
-4. Run the flow, inspect routing (`context["routing"]`), joins (`context["joins"]`), and diagnostics (`context["steps"]`, `context["errors"]`).
-
-## 7. Next Steps
-- Mirror these flows in `tests/`, similar to `tests/test_flow_examples.py`, to guard regressions.
-- Integrate logging/tracing by hooking into `context["steps"]` records.
-- Read `docs/flow.md` / `docs/flow_ja.md` for advanced design details (context namespaces, execution lifecycle, observability hooks).
+## 8. Next Steps
+- Reuse the patterns above to define your own callables and DSL wiring.
+- Add unit tests (see `tests/test_flow_examples.py` in the repository) to protect your flows.
+- Explore [docs/flow.md](flow.md) for deeper API and design details.

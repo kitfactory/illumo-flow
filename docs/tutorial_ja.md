@@ -1,79 +1,134 @@
 # Flow チュートリアル
 
-## 1. クイックスタート
-- 仮想環境を作成 (`uv venv --seed`)、`.venv` を有効化。
-- 開発インストール: `pip install -e .`
-- 最小フローを実行:
+PyPI からインストールしたライブラリを前提に説明します。
 
 ```bash
-python -m examples linear_etl
+pip install illumo-flow
 ```
 
-最終ペイロード (`persisted`) と `steps`・`payloads` の内容が表示されれば成功です。
+Python のスクリプト / REPL があれば十分です。サンプル CLI を使いたい場合のみ GitHub リポジトリを取得してください。
 
-## 2. 最初のフローを作る（線形 ETL）
-1. `examples/ops.py` の `extract` / `transform` / `load` を確認。いずれも `(context, payload)` を受け取り、`context["outputs"]` と `context["payloads"]` に保存します。
-2. ノードを組み立ててフローを作成:
-
+## 1. 最小フロー
 ```python
 from illumo_flow import Flow, FunctionNode
-from examples import ops
+
+def extract(ctx, _):
+    return {"customer_id": 42, "source": "demo"}
+
+def transform(ctx, payload):
+    return {**payload, "normalized": True}
+
+def store(ctx, payload):
+    return f"stored:{payload['customer_id']}"
 
 nodes = {
-    "extract": FunctionNode(ops.extract, output_path="data.raw"),
-    "transform": FunctionNode(ops.transform, input_path="data.raw", output_path="data.normalized"),
-    "load": FunctionNode(ops.load, input_path="data.normalized", output_path="data.persisted"),
+    "extract": FunctionNode(extract, output_path="data.raw"),
+    "transform": FunctionNode(transform, input_path="data.raw", output_path="data.normalized"),
+    "store": FunctionNode(store, input_path="data.normalized", output_path="data.persisted"),
 }
 
-flow = Flow.from_dsl(
-    nodes=nodes,
-    entry="extract",
-    edges=["extract >> transform", "transform >> load"],
-)
-
+flow = Flow.from_dsl(nodes=nodes, entry="extract", edges=["extract >> transform", "transform >> store"])
 context = {}
 result = flow.run(context)
+print(result)                      # stored:42
+print(context["data"]["persisted"])  # stored:42
 ```
 
-3. `context["payloads"]` がノードID→出力の辞書、`context["data"]["persisted"]` に最終ペイロードが格納されます。`context["steps"]` が実行順を示します。
-4. `transform` 内で例外を投げ、Fail-Fast で停止し `failed_node_id` が記録されることを確認。
+## 2. Fail-Fast の確認
+`transform` で例外を投げると即座に停止し、`context["failed_node_id"]` や `context["errors"]` に情報が残ります。
 
 ## 3. ルーティング分岐
-1. ルーター例を実行:
+```python
+from illumo_flow import Flow, FunctionNode, Routing
 
-```bash
-python -m examples confidence_router
+def classify(ctx, payload):
+    ctx["routing"]["classify"] = Routing(next="approve", confidence=90, reason="demo")
+
+nodes = {
+    "classify": FunctionNode(classify),
+    "approve": FunctionNode(lambda ctx, payload: "approved", output_path="decisions.auto"),
+    "reject": FunctionNode(lambda ctx, payload: "rejected", output_path="decisions.auto"),
+}
+
+flow = Flow.from_dsl(nodes=nodes, entry="classify", edges=["classify >> (approve | reject)"])
+ctx = {"inputs": {"application": {}}}
+flow.run(ctx)
+print(ctx["decisions"]["auto"])  # approved
+```
+`Routing.next` を省略すると全ての後続を実行します。`default_route` を設定すればフォールバック遷移も可能です。
+
+## 4. ファンアウト / ファンイン
+```python
+from illumo_flow import Flow, FunctionNode
+
+def seed(ctx, _):
+    return {"id": 1}
+
+def geo(ctx, payload):
+    return {"country": "JP"}
+
+def risk(ctx, payload):
+    return {"score": 0.2}
+
+def merge(ctx, payload):
+    return {"geo": payload["geo"], "risk": payload["risk"]}
+
+nodes = {
+    "seed": FunctionNode(seed, output_path="data.customer"),
+    "geo": FunctionNode(geo, input_path="data.customer", output_path="data.geo"),
+    "risk": FunctionNode(risk, input_path="data.customer", output_path="data.risk"),
+    "merge": FunctionNode(merge, input_path="joins.merge", output_path="data.profile"),
+}
+
+flow = Flow.from_dsl(nodes=nodes, entry="seed", edges=["seed >> (geo | risk)", "(geo & risk) >> merge"])
+ctx = {}
+flow.run(ctx)
+print(ctx["data"]["profile"])  # {'geo': {...}, 'risk': {...}}
+```
+複数の親エッジを持つノードは自動的に全ての親が完了するまで待機し、親ノード名→ペイロードの辞書を受け取ります（`context["joins"][node_id]`）。
+
+## 5. ノード内リトライ / タイムアウト
+```python
+import time
+from illumo_flow import Flow, FunctionNode
+
+attempts = {"count": 0}
+
+def call_api(ctx, _):
+    attempts["count"] += 1
+    if attempts["count"] < 3:
+        time.sleep(0.1)
+        raise RuntimeError("temporary failure")
+    return {"status": 200}
+
+flow = Flow.from_dsl(nodes={"call": FunctionNode(call_api, output_path="data.api")}, entry="call", edges=[])
+flow.run({})
+print(attempts["count"])  # 3
+```
+Flow 自体は Fail-Fast のまま、リトライ制御はノードで完結させる構成です。
+
+## 6. 早期停止
+```python
+from illumo_flow import Flow, FunctionNode, Routing
+
+def guard(ctx, payload):
+    ctx["routing"]["guard"] = Routing(next=None, reason="threshold")
+
+nodes = {
+    "guard": FunctionNode(guard),
+    "downstream": FunctionNode(lambda ctx, payload: "should_not_run"),
+}
+
+flow = Flow.from_dsl(nodes=nodes, entry="guard", edges=["guard >> downstream"])
+ctx = {}
+flow.run(ctx)
+print(ctx["steps"])  # downstream は実行されない
 ```
 
-2. `classify` ノードは `Routing(next, confidence, reason)` を `context["routing"]["classify"]` に書き込みます。Flow は後続候補を検証し、`default_route` をフォールバックに使用します。
-3. `examples/ops.classify` を編集して手動レビューを強制し、`steps`/`payloads` の変化を観察。
+## 7. リポジトリのサンプル
+CLI (`python -m examples <id>`) や pytest 等の追加デモを利用したい場合は GitHub リポジトリを取得してください。
 
-## 4. 並列エンリッチとジョイン
-1. ファンアウト/ファンイン例を実行:
-
-```bash
-python -m examples parallel_enrichment
-```
-
-2. `seed` から `geo` と `risk` に分岐し、`merge` は両方の親ノードから結果が揃った時点で `{ "geo": ..., "risk": ... }` を受け取ります。
-3. `context["joins"]["merge"]` を確認すると、両親の結果が揃うまでバッファされ、揃った時点で `{ "geo": ..., "risk": ... }` が `merge` に渡されます。
-
-## 5. ノード内タイムアウトと早期停止
-### ノードがタイムアウトを管理
-- `python -m examples node_managed_timeout`
-- `call_api_with_timeout` が内部でタイムアウト/リトライを行い、Flow は例外を受け取って Fail-Fast で停止します (`steps` に履歴が残ります)。
-
-### 早期停止
-- `python -m examples early_stop_watchdog`
-- `guard` が `Routing(next=None, reason=...)` を書き込み、下流ノードを実行せずに正常終了します。
-
-## 6. 独自フローの作成手順
-1. `(context, payload)` 形式のノード関数を作成し、`context["payloads"][node_id]` に出力を保存します。必要に応じて `describe()` に `context_inputs` / `context_outputs` を記述。
-2. ノード辞書を用意する。
-3. `Flow.from_dsl` でエッジを定義（文字列 DSL または `(src, dst)` タプル）。複数の親エッジを持つノードは自動的に全て完了するまで待機します。
-4. Flow を実行し、`context["routing"]` や `context["joins"]`、`context["errors"]` をチェックして挙動を確認。
-
-## 7. 次のステップ
-- `tests/test_flow_examples.py` を参考に、フロー単位の pytest を整備する。
-- `context["steps"]` を用いてログ/トレースの収集を行う。
-- 詳細設計 (`docs/flow.md` / `docs/flow_ja.md`) を参照し、コンテキスト命名規約やライフサイクルを把握する。
+## 8. 次のステップ
+- 上記コードを基に独自ノードと DSL を組み立てる。
+- Pytest 等でユニットテストを整備（リポジトリの `tests/test_flow_examples.py` 参照）。
+- 詳細仕様は [docs/flow.md](flow.md) / [docs/flow_ja.md](flow_ja.md) を参照。
