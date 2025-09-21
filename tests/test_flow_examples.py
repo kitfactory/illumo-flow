@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import pytest
-
-from pathlib import Path
 import sys
+import textwrap
+from pathlib import Path
+
+import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -102,3 +104,51 @@ def test_context_paths_are_honored():
     assert ctx["data"]["raw"]["customer_id"] == 42
     assert ctx["data"]["normalized"]["normalized"] is True
     assert ctx["data"]["persisted"] == "persisted"
+
+
+def test_flow_from_yaml_config(tmp_path):
+    config_text = textwrap.dedent(
+        """
+        flow:
+          entry: extract
+          nodes:
+            extract:
+              type: illumo_flow.core.FunctionNode
+              callable: examples.ops.extract
+              context:
+                output: data.raw
+            transform:
+              type: illumo_flow.core.FunctionNode
+              callable: examples.ops.transform
+              context:
+                input: data.raw
+                output: data.normalized
+            load:
+              type: illumo_flow.core.FunctionNode
+              callable: examples.ops.load
+              context:
+                input: data.normalized
+                output: data.persisted
+          edges:
+            - extract >> transform
+            - transform >> load
+        """
+    )
+
+    config_path = tmp_path / "flow.yaml"
+    config_path.write_text(config_text)
+
+    flow = Flow.from_config(config_path)
+    ctx = {}
+    result = flow.run(ctx)
+
+    assert result == "persisted"
+    assert ctx["data"]["persisted"] == "persisted"
+    assert ctx["payloads"]["load"] == "persisted"
+
+    # Also allow passing dictionaries directly
+    config_dict = yaml.safe_load(config_text)
+    flow_from_dict = Flow.from_config(config_dict)
+    ctx2 = {}
+    flow_from_dict.run(ctx2)
+    assert ctx2["data"]["persisted"] == "persisted"

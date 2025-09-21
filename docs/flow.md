@@ -68,6 +68,47 @@
 - Flow validates the declared `next` value(s) against allowed static successors; disallowed transitions raise routing errors.
 - Stored routing entries enable reproducible routing logs and deterministic replay. Flow clears entries once they are consumed so repeated runs start from a clean state.
 
+## Configuration Loading
+- `Flow.from_config(source)` accepts a path to a YAML/JSON file or a pre-loaded dictionary.
+- Node entries support `type`, `callable`, `context.input`, `context.output`, `next_route`, `default_route`, and optional `describe` metadata.
+- Example configuration:
+
+```yaml
+flow:
+  entry: extract
+  nodes:
+    extract:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.extract
+      context:
+        output: data.raw
+    transform:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.transform
+      context:
+        input: data.raw
+        output: data.normalized
+    load:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.load
+      context:
+        input: data.normalized
+        output: data.persisted
+  edges:
+    - extract >> transform
+    - transform >> load
+```
+
+- Load and execute:
+
+```python
+from illumo_flow import Flow
+
+flow = Flow.from_config("flow.yaml")
+context = {}
+flow.run(context)
+```
+
 ### Fan-Out and Broadcast
 - For `A | B` when both edges must fire, Flow duplicates the outbound payload per target, tagging each with the parent node id.
 - Nodes can broadcast by setting `Routing["next"]` to a collection (e.g., `["B", "C"]`).

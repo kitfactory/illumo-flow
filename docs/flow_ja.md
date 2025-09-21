@@ -68,6 +68,47 @@
 - Flow は `next` に指定されたノードが静的に許可された後続集合に含まれるか検証し、違反時はルーティングエラーを送出する。
 - 指示は追跡やリプレイのためにコンテキストへ保持され、消費後は Flow がクリアする。
 
+## 設定ファイルからのロード
+- `Flow.from_config(source)` は YAML/JSON ファイル、または辞書オブジェクトからフローを構築します。
+- ノード定義では `type`、`callable`、`context.input` / `context.output`、`next_route`、`default_route`、`describe` などを指定できます。
+- 設定例:
+
+```yaml
+flow:
+  entry: extract
+  nodes:
+    extract:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.extract
+      context:
+        output: data.raw
+    transform:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.transform
+      context:
+        input: data.raw
+        output: data.normalized
+    load:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.load
+      context:
+        input: data.normalized
+        output: data.persisted
+  edges:
+    - extract >> transform
+    - transform >> load
+```
+
+- 利用例:
+
+```python
+from illumo_flow import Flow
+
+flow = Flow.from_config("flow.yaml")
+context = {}
+flow.run(context)
+```
+
 ### ファンアウト / ブロードキャスト
 - `A | B` の両エッジを発火させるケースでは、Flow が出力ペイロードをターゲットごとに複製し、親ノードIDを付与する。
 - ノードが `Routing["next"]` に複数ID（例: `["B", "C"]`）を設定すれば、DSL が選択集合であっても全分岐をブロードキャストできる。

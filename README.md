@@ -48,6 +48,44 @@ cd illumo-flow
 python -m examples linear_etl
 ```
 
+## YAML Configuration
+Flows can also be defined in configuration files:
+
+```yaml
+flow:
+  entry: extract
+  nodes:
+    extract:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.extract
+      context:
+        output: data.raw
+    transform:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.transform
+      context:
+        input: data.raw
+        output: data.normalized
+    load:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.load
+      context:
+        input: data.normalized
+        output: data.persisted
+  edges:
+    - extract >> transform
+    - transform >> load
+```
+
+```python
+from illumo_flow import Flow
+
+flow = Flow.from_config("./flow.yaml")
+context = {}
+flow.run(context)
+print(context["data"]["persisted"])
+```
+
 ## Testing (repository clone)
 ```bash
 pytest

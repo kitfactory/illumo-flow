@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from collections import deque, defaultdict
+import json
+from collections import defaultdict, deque
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Set, Tuple, Union
+from importlib import import_module
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
 
 
 class FlowError(Exception):
@@ -57,6 +60,40 @@ def _set_to_path(mapping: MutableMapping[str, Any], path: Optional[str], value: 
             current[part] = next_item
         current = next_item
     current[parts[-1]] = value
+
+
+def _import_object(path: str) -> Any:
+    module_path, _, attr = path.rpartition(".")
+    if not module_path:
+        raise FlowError(f"Invalid import path '{path}'")
+    module = import_module(module_path)
+    try:
+        return getattr(module, attr)
+    except AttributeError as exc:
+        raise FlowError(f"Unable to import '{path}'") from exc
+
+
+def _load_config_source(source: Union[str, Path, Mapping[str, Any]]) -> Dict[str, Any]:
+    if isinstance(source, Mapping):
+        return dict(source)
+
+    if isinstance(source, (str, Path)):
+        path = Path(source)
+        text = path.read_text()
+        suffix = path.suffix.lower()
+        if suffix in {".yaml", ".yml"}:
+            try:
+                import yaml  # type: ignore
+            except ImportError as exc:
+                raise FlowError("PyYAML is required to load YAML configurations") from exc
+            data = yaml.safe_load(text) or {}
+        elif suffix == ".json":
+            data = json.loads(text)
+        else:
+            raise FlowError(f"Unsupported config format '{suffix}'")
+        return data
+
+    raise FlowError("Config source must be a mapping or path to YAML/JSON file")
 
 
 class Node:
@@ -224,6 +261,55 @@ class Flow:
             else:
                 expanded.extend(cls._parse_edge_expression(edge))
         return cls(nodes=nodes, entry=entry, edges=expanded)
+
+    # ------------------------------------------------------------------
+    @classmethod
+    def from_config(
+        cls,
+        source: Union[str, Path, Mapping[str, Any]],
+    ) -> "Flow":
+        raw = _load_config_source(source)
+        flow_cfg = raw.get("flow", raw)
+        entry = flow_cfg.get("entry")
+        if entry is None:
+            raise FlowError("Config must define 'entry'")
+
+        node_defs = flow_cfg.get("nodes", {})
+        if not node_defs:
+            raise FlowError("Config must define at least one node")
+
+        nodes: Dict[str, Node] = {}
+        for node_id, cfg in node_defs.items():
+            node_type = cfg.get("type", "illumo_flow.core.FunctionNode")
+            NodeCls = _import_object(node_type)
+
+            context_cfg = cfg.get("context", {})
+            common_kwargs = {
+                "name": cfg.get("name", node_id),
+                "next_route": cfg.get("next_route"),
+                "default_route": cfg.get("default_route"),
+                "input_path": context_cfg.get("input"),
+                "output_path": context_cfg.get("output"),
+                "metadata": cfg.get("describe"),
+            }
+            common_kwargs = {k: v for k, v in common_kwargs.items() if v is not None}
+
+            callable_path = cfg.get("callable")
+            if callable_path:
+                func = _import_object(callable_path)
+                try:
+                    node = NodeCls(func, **common_kwargs)
+                except TypeError as exc:
+                    raise FlowError(
+                        f"Unable to instantiate node '{node_id}' with callable '{callable_path}': {exc}"
+                    )
+            else:
+                node = NodeCls(**common_kwargs)
+
+            nodes[node_id] = node
+
+        edges = flow_cfg.get("edges", [])
+        return cls.from_dsl(nodes=nodes, entry=entry, edges=edges)
 
     # ------------------------------------------------------------------
     @staticmethod
