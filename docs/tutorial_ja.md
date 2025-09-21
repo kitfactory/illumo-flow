@@ -87,7 +87,72 @@ print(ctx["data"]["profile"])  # {'geo': {...}, 'risk': {...}}
 ```
 複数の親エッジを持つノードは自動的に全ての親が完了するまで待機し、親ノード名→ペイロードの辞書を受け取ります（`context["joins"][node_id]`）。
 
-## 5. ノード内リトライ / タイムアウト
+## 5. 複数入力・複数出力
+```python
+from illumo_flow import Flow, FunctionNode
+
+def split(ctx, payload):
+    return {"left": payload[::2], "right": payload[1::2]}
+
+def combine(ctx, payload):
+    return payload["left"] + payload["right"]
+
+nodes = {
+    "seed": FunctionNode(lambda ctx, _: "abcdef", outputs="data.source"),
+    "split": FunctionNode(
+        split,
+        inputs="data.source",
+        outputs={"left": "data.left", "right": "data.right"},
+    ),
+    "combine": FunctionNode(
+        combine,
+        inputs={"left": "data.left", "right": "data.right"},
+        outputs="data.result",
+    ),
+}
+
+flow = Flow.from_dsl(nodes=nodes, entry="seed", edges=["seed >> split", "split >> combine"])
+ctx = {}
+flow.run(ctx)
+print(ctx["data"]["result"])  # 'abcdef'
+```
+
+YAML 例:
+
+```yaml
+flow:
+  entry: seed
+  nodes:
+    seed:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.seed
+      context:
+        outputs: data.source
+    split:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.split_text
+      context:
+        inputs: data.source
+        outputs:
+          left: data.left
+          right: data.right
+    combine:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.combine_text
+      context:
+        inputs:
+          left: data.left
+          right: data.right
+        outputs: data.result
+  edges:
+    - seed >> split
+    - split >> combine
+```
+
+`Flow.from_config("flow.yaml")` で同じ処理を再現できます。
+
+
+## 6. ノード内リトライ / タイムアウト
 ```python
 import time
 from illumo_flow import Flow, FunctionNode
@@ -107,7 +172,7 @@ print(attempts["count"])  # 3
 ```
 Flow 自体は Fail-Fast のまま、リトライ制御はノードで完結させる構成です。
 
-## 6. 早期停止
+## 7. 早期停止
 ```python
 from illumo_flow import Flow, FunctionNode, Routing
 
@@ -125,10 +190,10 @@ flow.run(ctx)
 print(ctx["steps"])  # downstream は実行されない
 ```
 
-## 7. リポジトリのサンプル
+## 8. リポジトリのサンプル
 CLI (`python -m examples <id>`) や pytest 等の追加デモを利用したい場合は GitHub リポジトリを取得してください。
 
-## 8. 次のステップ
+## 9. 次のステップ
 - 上記コードを基に独自ノードと DSL を組み立てる。
 - Pytest 等でユニットテストを整備（リポジトリの `tests/test_flow_examples.py` 参照）。
 - 詳細仕様は [docs/flow.md](flow.md) / [docs/flow_ja.md](flow_ja.md) を参照。

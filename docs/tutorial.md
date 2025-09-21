@@ -88,7 +88,72 @@ print(ctx["data"]["profile"])  # {'geo': {...}, 'risk': {...}}
 ```
 Any node with multiple incoming edges automatically waits for all parents; their outputs are exposed via `context["joins"][node_id]`.
 
-## 5. Node-Managed Timeout / Retries
+## 5. Multiple Inputs and Outputs
+```python
+from illumo_flow import Flow, FunctionNode
+
+def split(ctx, payload):
+    return {"left": payload[::2], "right": payload[1::2]}
+
+def combine(ctx, payload):
+    return payload["left"] + payload["right"]
+
+nodes = {
+    "seed": FunctionNode(lambda ctx, _: "abcdef", outputs="data.source"),
+    "split": FunctionNode(
+        split,
+        inputs="data.source",
+        outputs={"left": "data.left", "right": "data.right"},
+    ),
+    "combine": FunctionNode(
+        combine,
+        inputs={"left": "data.left", "right": "data.right"},
+        outputs="data.result",
+    ),
+}
+
+flow = Flow.from_dsl(nodes=nodes, entry="seed", edges=["seed >> split", "split >> combine"])
+ctx = {}
+flow.run(ctx)
+print(ctx["data"]["result"])  # 'abcdef'
+```
+
+YAML example:
+
+```yaml
+flow:
+  entry: seed
+  nodes:
+    seed:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.seed
+      context:
+        outputs: data.source
+    split:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.split_text
+      context:
+        inputs: data.source
+        outputs:
+          left: data.left
+          right: data.right
+    combine:
+      type: illumo_flow.core.FunctionNode
+      callable: examples.ops.combine_text
+      context:
+        inputs:
+          left: data.left
+          right: data.right
+        outputs: data.result
+  edges:
+    - seed >> split
+    - split >> combine
+```
+
+Load it with `Flow.from_config("flow.yaml")` to produce the same result.
+
+
+## 6. Node-Managed Timeout / Retries
 Encapsulate external retries within the node:
 ```python
 import time
@@ -114,7 +179,7 @@ print(attempts["count"])  # 3
 ```
 Flow remains fail-fast—retries or timeouts are entirely managed within the node implementation.
 
-## 6. Early Stop via Routing
+## 7. Early Stop via Routing
 ```python
 from illumo_flow import Flow, FunctionNode, Routing
 
@@ -132,10 +197,10 @@ flow.run(ctx)
 print(ctx["steps"])  # downstream never runs
 ```
 
-## 7. Optional Repository Examples
+## 8. Optional Repository Examples
 Cloning the repository gives access to the bundled CLI (`python -m examples <id>`) and pytest suite (`pytest`). These demonstrate larger flows built entirely from configuration.
 
-## 8. Next Steps
+## 9. Next Steps
 - Reuse the patterns above to define your own callables and DSL wiring.
 - Add unit tests (see `tests/test_flow_examples.py` in the repository) to protect your flows.
 - Explore [docs/flow.md](flow.md) for deeper API and design details.

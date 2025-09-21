@@ -76,3 +76,13 @@ def guard_threshold(context: Dict[str, Any], payload: Any) -> None:
 
 def continue_flow(context: Dict[str, Any], payload: Any) -> str:
     return "continued"
+
+
+def split_text(context, payload):
+    payload = payload or ""
+    return {"left": payload[::2], "right": payload[1::2]}
+
+
+def combine_text(context, payload):
+    payload = payload or {}
+    return (payload.get("left") or "") + (payload.get("right") or "")
