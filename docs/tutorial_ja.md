@@ -22,9 +22,9 @@ def store(ctx, payload):
     return f"stored:{payload['customer_id']}"
 
 nodes = {
-    "extract": FunctionNode(extract, output_path="data.raw"),
-    "transform": FunctionNode(transform, input_path="data.raw", output_path="data.normalized"),
-    "store": FunctionNode(store, input_path="data.normalized", output_path="data.persisted"),
+    "extract": FunctionNode(extract, outputs="data.raw"),
+    "transform": FunctionNode(transform, inputs="data.raw", outputs="data.normalized"),
+    "store": FunctionNode(store, inputs="data.normalized", outputs="data.persisted"),
 }
 
 flow = Flow.from_dsl(nodes=nodes, entry="extract", edges=["extract >> transform", "transform >> store"])
@@ -46,8 +46,8 @@ def classify(ctx, payload):
 
 nodes = {
     "classify": FunctionNode(classify),
-    "approve": FunctionNode(lambda ctx, payload: "approved", output_path="decisions.auto"),
-    "reject": FunctionNode(lambda ctx, payload: "rejected", output_path="decisions.auto"),
+    "approve": FunctionNode(lambda ctx, payload: "approved", outputs="decisions.auto"),
+    "reject": FunctionNode(lambda ctx, payload: "rejected", outputs="decisions.auto"),
 }
 
 flow = Flow.from_dsl(nodes=nodes, entry="classify", edges=["classify >> (approve | reject)"])
@@ -74,10 +74,10 @@ def merge(ctx, payload):
     return {"geo": payload["geo"], "risk": payload["risk"]}
 
 nodes = {
-    "seed": FunctionNode(seed, output_path="data.customer"),
-    "geo": FunctionNode(geo, input_path="data.customer", output_path="data.geo"),
-    "risk": FunctionNode(risk, input_path="data.customer", output_path="data.risk"),
-    "merge": FunctionNode(merge, input_path="joins.merge", output_path="data.profile"),
+    "seed": FunctionNode(seed, outputs="data.customer"),
+    "geo": FunctionNode(geo, inputs="data.customer", outputs="data.geo"),
+    "risk": FunctionNode(risk, inputs="data.customer", outputs="data.risk"),
+    "merge": FunctionNode(merge, inputs="joins.merge", outputs="data.profile"),
 }
 
 flow = Flow.from_dsl(nodes=nodes, entry="seed", edges=["seed >> (geo | risk)", "(geo & risk) >> merge"])
@@ -101,7 +101,7 @@ def call_api(ctx, _):
         raise RuntimeError("temporary failure")
     return {"status": 200}
 
-flow = Flow.from_dsl(nodes={"call": FunctionNode(call_api, output_path="data.api")}, entry="call", edges=[])
+flow = Flow.from_dsl(nodes={"call": FunctionNode(call_api, outputs="data.api")}, entry="call", edges=[])
 flow.run({})
 print(attempts["count"])  # 3
 ```

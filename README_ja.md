@@ -23,9 +23,9 @@ def load(ctx, payload):
     return f"stored:{payload['customer_id']}"
 
 nodes = {
-    "extract": FunctionNode(extract, output_path="data.raw"),
-    "transform": FunctionNode(transform, input_path="data.raw", output_path="data.normalized"),
-    "load": FunctionNode(load, input_path="data.normalized", output_path="data.persisted"),
+    "extract": FunctionNode(extract, outputs="data.raw"),
+    "transform": FunctionNode(transform, inputs="data.raw", outputs="data.normalized"),
+    "load": FunctionNode(load, inputs="data.normalized", outputs="data.persisted"),
 }
 
 flow = Flow.from_dsl(
@@ -59,19 +59,19 @@ flow:
       type: illumo_flow.core.FunctionNode
       callable: examples.ops.extract
       context:
-        output: data.raw
+        outputs: data.raw
     transform:
       type: illumo_flow.core.FunctionNode
       callable: examples.ops.transform
       context:
-        input: data.raw
-        output: data.normalized
+        inputs: data.raw
+        outputs: data.normalized
     load:
       type: illumo_flow.core.FunctionNode
       callable: examples.ops.load
       context:
-        input: data.normalized
-        output: data.persisted
+        inputs: data.normalized
+        outputs: data.persisted
   edges:
     - extract >> transform
     - transform >> load

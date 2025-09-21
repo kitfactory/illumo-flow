@@ -27,10 +27,10 @@
 ```python
 from illumo import Flow, FunctionNode
 
-start = FunctionNode(lambda ctx, x: x, name="start", output_path="data.start")
-A     = FunctionNode(lambda ctx, x: f"A:{x}", name="A", input_path="data.start", output_path="data.A")
-B     = FunctionNode(lambda ctx, x: f"B:{x}", name="B", input_path="data.start", output_path="data.B")
-join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join", input_path="joins.join", output_path="data.join")
+start = FunctionNode(lambda ctx, x: x, name="start", outputs="data.start")
+A     = FunctionNode(lambda ctx, x: f"A:{x}", name="A", inputs="data.start", outputs="data.A")
+B     = FunctionNode(lambda ctx, x: f"B:{x}", name="B", inputs="data.start", outputs="data.B")
+join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join", inputs="joins.join", outputs="data.join")
 
 flow = Flow.from_dsl(
     nodes={"start": start, "A": A, "B": B, "join": join},
@@ -63,28 +63,28 @@ flow:
   entry: start
   nodes:
     start:
-      type: illumo.nodes.FunctionNode
+      type: illumo_flow.core.FunctionNode
       callable: start_func
       context:
-        output: data.start
+        outputs: data.start
     A:
-      type: illumo.nodes.FunctionNode
+      type: illumo_flow.core.FunctionNode
       callable: node_a
       context:
-        input: data.start
-        output: data.A
+        inputs: data.start
+        outputs: data.A
     B:
-      type: illumo.nodes.FunctionNode
+      type: illumo_flow.core.FunctionNode
       callable: node_b
       context:
-        input: data.start
-        output: data.B
+        inputs: data.start
+        outputs: data.B
     join:
-      type: illumo.nodes.FunctionNode
+      type: illumo_flow.core.FunctionNode
       callable: join_func
       context:
-        input: joins.join
-        output: data.join
+        inputs: joins.join
+        outputs: data.join
   edges:
     - start >> (A | B)
     - (A & B) >> join

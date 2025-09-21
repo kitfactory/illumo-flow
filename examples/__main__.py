@@ -29,10 +29,12 @@ def build_flow(example_id: str) -> Flow:
         func_name = node_cfg["callable"].split(".")[-1]
         func = getattr(ops, func_name)
         context_cfg = node_cfg.get("context", {})
+        inputs_cfg = context_cfg.get("inputs", context_cfg.get("input"))
+        outputs_cfg = context_cfg.get("outputs", context_cfg.get("output"))
         node = FunctionNode(
             func,
-            input_path=context_cfg.get("input"),
-            output_path=context_cfg.get("output"),
+            inputs=inputs_cfg,
+            outputs=outputs_cfg,
         )
         if "default_route" in node_cfg:
             node.default_route = node_cfg["default_route"]

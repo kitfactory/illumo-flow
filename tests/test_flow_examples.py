@@ -24,10 +24,12 @@ def build_flow(example):
         callable_path = node_cfg["callable"].split(".")[-1]
         func = getattr(ops, callable_path)
         context_cfg = node_cfg.get("context", {})
+        inputs_cfg = context_cfg.get("inputs", context_cfg.get("input"))
+        outputs_cfg = context_cfg.get("outputs", context_cfg.get("output"))
         node = FunctionNode(
             func,
-            input_path=context_cfg.get("input"),
-            output_path=context_cfg.get("output"),
+            inputs=inputs_cfg,
+            outputs=outputs_cfg,
         )
         if "default_route" in node_cfg:
             node.default_route = node_cfg["default_route"]
@@ -75,20 +77,9 @@ def test_join_node_receives_parent_dictionary():
 
 def test_context_paths_are_honored():
     nodes = {
-        "extract": FunctionNode(
-            ops.extract,
-            output_path="data.raw",
-        ),
-        "transform": FunctionNode(
-            ops.transform,
-            input_path="data.raw",
-            output_path="data.normalized",
-        ),
-        "load": FunctionNode(
-            ops.load,
-            input_path="data.normalized",
-            output_path="data.persisted",
-        ),
+        "extract": FunctionNode(ops.extract, outputs="data.raw"),
+        "transform": FunctionNode(ops.transform, inputs="data.raw", outputs="data.normalized"),
+        "load": FunctionNode(ops.load, inputs="data.normalized", outputs="data.persisted"),
     }
 
     flow = Flow.from_dsl(
@@ -106,6 +97,22 @@ def test_context_paths_are_honored():
     assert ctx["data"]["persisted"] == "persisted"
 
 
+def test_multiple_outputs_configuration():
+    def producer(ctx, payload):
+        return {"a": 1, "b": 2}
+
+    nodes = {
+        "producer": FunctionNode(producer, outputs={"a": "data.alpha", "b": "data.beta"}),
+    }
+
+    flow = Flow.from_dsl(nodes=nodes, entry="producer", edges=[])
+    ctx = {}
+    flow.run(ctx)
+
+    assert ctx["data"]["alpha"] == 1
+    assert ctx["data"]["beta"] == 2
+
+
 def test_flow_from_yaml_config(tmp_path):
     config_text = textwrap.dedent(
         """
@@ -116,19 +123,19 @@ def test_flow_from_yaml_config(tmp_path):
               type: illumo_flow.core.FunctionNode
               callable: examples.ops.extract
               context:
-                output: data.raw
+                outputs: data.raw
             transform:
               type: illumo_flow.core.FunctionNode
               callable: examples.ops.transform
               context:
-                input: data.raw
-                output: data.normalized
+                inputs: data.raw
+                outputs: data.normalized
             load:
               type: illumo_flow.core.FunctionNode
               callable: examples.ops.load
               context:
-                input: data.normalized
-                output: data.persisted
+                inputs: data.normalized
+                outputs: data.persisted
           edges:
             - extract >> transform
             - transform >> load

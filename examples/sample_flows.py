@@ -26,7 +26,7 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["outputs.raw"],
                     },
                     "context": {
-                        "output": "data.raw",
+                        "outputs": "data.raw",
                     },
                 },
                 "transform": {
@@ -38,8 +38,8 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["outputs.normalized"],
                     },
                     "context": {
-                        "input": "data.raw",
-                        "output": "data.normalized",
+                        "inputs": "data.raw",
+                        "outputs": "data.normalized",
                     },
                 },
                 "load": {
@@ -51,8 +51,8 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["outputs.persisted"],
                     },
                     "context": {
-                        "input": "data.normalized",
-                        "output": "data.persisted",
+                        "inputs": "data.normalized",
+                        "outputs": "data.persisted",
                     },
                 },
             },
@@ -91,7 +91,7 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["outputs.decision"],
                     },
                     "context": {
-                        "output": "decisions.auto",
+                        "outputs": "decisions.auto",
                     },
                 },
                 "reject": {
@@ -103,7 +103,7 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["outputs.decision"],
                     },
                     "context": {
-                        "output": "decisions.auto",
+                        "outputs": "decisions.auto",
                     },
                 },
                 "manual_review": {
@@ -114,7 +114,7 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["outputs.review_ticket"],
                     },
                     "context": {
-                        "output": "decisions.manual_review",
+                        "outputs": "decisions.manual_review",
                     },
                 },
             },
@@ -142,7 +142,7 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["inputs.customer"],
                     },
                     "context": {
-                        "output": "data.customer",
+                        "outputs": "data.customer",
                     },
                 },
                 "geo": {
@@ -154,8 +154,8 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["joins.enrich.geo"],
                     },
                     "context": {
-                        "input": "data.customer",
-                        "output": "data.geo",
+                        "inputs": "data.customer",
+                        "outputs": "data.geo",
                     },
                 },
                 "risk": {
@@ -167,8 +167,8 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["joins.enrich.risk"],
                     },
                     "context": {
-                        "input": "data.customer",
-                        "output": "data.risk",
+                        "inputs": "data.customer",
+                        "outputs": "data.risk",
                     },
                 },
                 "merge": {
@@ -180,7 +180,7 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["outputs.profile"],
                     },
                     "context": {
-                        "output": "data.profile",
+                        "outputs": "data.profile",
                     },
                 },
             },
@@ -209,7 +209,7 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["outputs.api_response"],
                     },
                     "context": {
-                        "output": "data.api_response",
+                        "outputs": "data.api_response",
                     },
                 },
                 "parse": {
@@ -221,8 +221,8 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "context_outputs": ["outputs.parsed"],
                     },
                     "context": {
-                        "input": "data.api_response",
-                        "output": "data.api_parsed",
+                        "inputs": "data.api_response",
+                        "outputs": "data.api_parsed",
                     },
                 },
             },

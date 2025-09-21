@@ -96,6 +96,74 @@ def _load_config_source(source: Union[str, Path, Mapping[str, Any]]) -> Dict[str
     raise FlowError("Config source must be a mapping or path to YAML/JSON file")
 
 
+def _alias_from_path(path: str) -> str:
+    parts = [p for p in path.split(".") if p]
+    return parts[-1] if parts else path
+
+
+def _normalize_inputs_spec(value: Optional[Any]) -> List[Tuple[str, str]]:
+    result: List[Tuple[str, str]] = []
+    if value is None:
+        return result
+
+    def add(path: str, alias: Optional[str] = None) -> None:
+        path = path.strip()
+        if not path:
+            return
+        result.append((alias or _alias_from_path(path), path))
+
+    if isinstance(value, str):
+        add(value)
+    elif isinstance(value, Mapping):
+        for alias, path in value.items():
+            add(path, alias)
+    elif isinstance(value, Iterable):
+        for item in value:
+            if isinstance(item, str):
+                add(item)
+            elif isinstance(item, Mapping):
+                for alias, path in item.items():
+                    add(path, alias)
+            else:
+                raise FlowError("Unsupported inputs specification item")
+    else:
+        raise FlowError("Inputs specification must be a string, mapping, or iterable")
+
+    return result
+
+
+def _normalize_outputs_spec(value: Optional[Any]) -> List[Tuple[Optional[str], str, bool]]:
+    result: List[Tuple[Optional[str], str, bool]] = []
+    if value is None:
+        return result
+
+    def add(path: str, alias: Optional[str] = None, explicit: bool = False) -> None:
+        path = path.strip()
+        if not path:
+            return
+        resolved_alias = alias or _alias_from_path(path)
+        result.append((alias if explicit else None, path, explicit))
+
+    if isinstance(value, str):
+        add(value)
+    elif isinstance(value, Mapping):
+        for alias, path in value.items():
+            add(path, alias, True)
+    elif isinstance(value, Iterable):
+        for item in value:
+            if isinstance(item, str):
+                add(item)
+            elif isinstance(item, Mapping):
+                for alias, path in item.items():
+                    add(path, alias, True)
+            else:
+                raise FlowError("Unsupported outputs specification item")
+    else:
+        raise FlowError("Outputs specification must be a string, mapping, or iterable")
+
+    return result
+
+
 class Node:
     """Base node interface. Subclasses must implement :meth:`run`."""
 
@@ -105,15 +173,15 @@ class Node:
         name: Optional[str] = None,
         next_route: Optional[str] = None,
         default_route: Optional[str] = None,
-        input_path: Optional[str] = None,
-        output_path: Optional[str] = None,
+        inputs: Optional[Any] = None,
+        outputs: Optional[Any] = None,
         metadata: Optional[Mapping[str, Any]] = None,
     ) -> None:
         self.name = name or self.__class__.__name__
         self.next_route = next_route
         self.default_route = default_route
-        self._input_path = input_path
-        self._output_path = output_path
+        self._inputs: List[Tuple[str, str]] = _normalize_inputs_spec(inputs)
+        self._outputs: List[Tuple[Optional[str], str, bool]] = _normalize_outputs_spec(outputs)
         self._metadata: Dict[str, Any] = dict(metadata or {})
         self._node_id: Optional[str] = None
 
@@ -145,8 +213,11 @@ class Node:
             "class": self.__class__.__name__,
             "next_route": self.next_route,
             "default_route": self.default_route,
-            "input_path": self._input_path,
-            "output_path": self._output_path,
+            "inputs": [{"alias": alias, "path": path} for alias, path in self._inputs],
+            "outputs": [
+                {"alias": alias or _alias_from_path(path), "path": path}
+                for alias, path, _ in self._outputs
+            ],
         }
         base.update(self._metadata)
         return base
@@ -158,8 +229,22 @@ class Node:
             raise FlowError("Node output cannot be recorded before binding to a flow")
         payloads = context.setdefault("payloads", {})
         payloads[self._node_id] = value
-        if self._output_path:
-            _set_to_path(context, self._output_path, value)
+        if self._outputs:
+            if isinstance(value, Mapping):
+                for alias, path, explicit in self._outputs:
+                    if explicit and alias and alias in value:
+                        _set_to_path(context, path, value[alias])
+                    else:
+                        _set_to_path(context, path, value)
+            elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+                for index, (_, path, _) in enumerate(self._outputs):
+                    if index < len(value):
+                        _set_to_path(context, path, value[index])
+                    else:
+                        _set_to_path(context, path, value)
+            else:
+                for _, path, _ in self._outputs:
+                    _set_to_path(context, path, value)
 
 
 class FunctionNode(Node):
@@ -172,16 +257,16 @@ class FunctionNode(Node):
         name: Optional[str] = None,
         next_route: Optional[str] = None,
         default_route: Optional[str] = None,
-        input_path: Optional[str] = None,
-        output_path: Optional[str] = None,
+        inputs: Optional[Any] = None,
+        outputs: Optional[Any] = None,
         metadata: Optional[Mapping[str, Any]] = None,
     ) -> None:
         super().__init__(
             name=name,
             next_route=next_route,
             default_route=default_route,
-            input_path=input_path,
-            output_path=output_path,
+            inputs=inputs,
+            outputs=outputs,
             metadata=metadata,
         )
         self._func = func
@@ -284,12 +369,19 @@ class Flow:
             NodeCls = _import_object(node_type)
 
             context_cfg = cfg.get("context", {})
+            inputs_cfg = context_cfg.get("inputs")
+            outputs_cfg = context_cfg.get("outputs")
+            if inputs_cfg is None and "input" in context_cfg:
+                inputs_cfg = context_cfg.get("input")
+            if outputs_cfg is None and "output" in context_cfg:
+                outputs_cfg = context_cfg.get("output")
+
             common_kwargs = {
                 "name": cfg.get("name", node_id),
                 "next_route": cfg.get("next_route"),
                 "default_route": cfg.get("default_route"),
-                "input_path": context_cfg.get("input"),
-                "output_path": context_cfg.get("output"),
+                "inputs": inputs_cfg,
+                "outputs": outputs_cfg,
                 "metadata": cfg.get("describe"),
             }
             common_kwargs = {k: v for k, v in common_kwargs.items() if v is not None}
@@ -364,9 +456,14 @@ class Flow:
             context["steps"].append({"node_id": node_id, "status": "start"})
 
             input_payload = payloads.get(node_id)
-            requested_payload = _get_from_path(context, getattr(node, "_input_path", None))
-            if requested_payload is not None:
-                input_payload = requested_payload
+            if getattr(node, "_inputs", None):
+                collected: Dict[str, Any] = {}
+                for alias, path in node._inputs:
+                    collected[alias] = _get_from_path(context, path)
+                if len(node._inputs) == 1:
+                    input_payload = next(iter(collected.values()))
+                else:
+                    input_payload = collected
             try:
                 updated_context = node.run(user_input=input_payload, context=context)
             except Exception as exc:
