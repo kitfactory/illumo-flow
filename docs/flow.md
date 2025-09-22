@@ -179,6 +179,33 @@ flow.run(context)
 - Optionally integrate with tracing systems—Flow should expose callbacks so instrumentations can attach spans per node.
 - Maintain metrics (success count, failure count, execution latency per node) accessible via Flow hooks.
 
+## Future Roadmap Considerations
+- **Extensibility hooks**: expose structured metadata from `Node.describe()` and add Flow-level pre/post execution hooks so cross-cutting concerns (logging, tracing, metrics) can be injected without patching nodes individually.
+- **Error / retry policies**: keep Fail-Fast as the default while allowing optional retry/backoff modules or failure notification adapters to be registered per node or per Flow run.
+- **Observability tooling**: provide first-class exporters for execution traces, step timelines, and aggregated statistics so external dashboards can introspect runs.
+- **Config validation**: strengthen static checks for `context.inputs` / `context.outputs` expressions and callable declarations to catch configuration errors before execution.
+- **UI readiness**: support round-trippable Flow definitions (e.g. `Flow.to_config()`), publish a node catalog with machine-readable metadata, and document expression/validation rules to power graphical editors.
+
+### Roadmap
+**Story so far**: Version 0.1.2 flipped the runtime to a payload-first contract with minimal context exposure, clarified `$ctx` / `$.` expressions, and unified YAML / DSL configuration. The next steps extend that foundation so larger projects and UI tooling can rely on predictable hooks, validation, and visibility.
+
+**Near term (0.1.x)**
+- Ship `Flow.run` context-return semantics broadly, add helper utilities so node authors can migrate away from raw context mutation.
+- Implement structured metadata exports from `Node.describe()` and document a lightweight plugin interface for execution pre/post hooks.
+- Harden configuration validation (expressions, callable resolution) and surface actionable errors before execution.
+- Extend tests/examples to cover context-view helpers (`ctx.get`, `ctx.write`, `ctx.route`) and document idiomatic usage for contributors.
+
+**Mid term (0.2.x)**
+- Introduce pluggable retry/backoff policies and failure notifiers while keeping Fail-Fast default.
+- Provide tracing/metrics adapters (OpenTelemetry, JSONL) and a standardized execution report that UI/CLI can consume.
+- Publish a node catalog schema (JSON) so external toolchains can enumerate available node types with inputs/outputs metadata.
+- Add `Flow.to_config()` / `Flow.diff_config()` to enable round-trip editing between code and UI builders.
+
+**Long term (0.3.x and beyond)**
+- Deliver optional distributed/back-pressure runtimes while preserving the single-process default.
+- Release a reference UI (or design kit) that consumes the catalog/validation schema and renders drag-and-drop workflow editors.
+- Enable policy-driven observability pipelines (streaming events, durable audit logs) for enterprise deployments.
+- Formalize extension points (e.g., `FlowPlugin` registry) to curate community-contributed nodes and integrations.
 ## Supported Scenarios Checklist
 - Serial pipelines (`A >> B >> C`).
 - Static fan-out (`A >> (B | C)` both active).
