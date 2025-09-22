@@ -13,19 +13,29 @@ from illumo_flow import Flow, FunctionNode
 
 # コンテキスト辞書を扱うノード関数を定義
 
-def extract(ctx, _):
+def extract(payload):
     return {"customer_id": 42, "source": "demo"}
 
-def transform(ctx, payload):
+def transform(payload, ctx):
     return {**payload, "normalized": True}
 
-def load(ctx, payload):
+def load(payload, ctx):
     return f"stored:{payload['customer_id']}"
 
 nodes = {
-    "extract": FunctionNode(extract, outputs="data.raw"),
-    "transform": FunctionNode(transform, inputs="data.raw", outputs="data.normalized"),
-    "load": FunctionNode(load, inputs="data.normalized", outputs="data.persisted"),
+    "extract": FunctionNode(extract, name="extract", outputs="$ctx.data.raw"),
+    "transform": FunctionNode(
+        transform,
+        name="transform",
+        inputs="$ctx.data.raw",
+        outputs="$ctx.data.normalized",
+    ),
+    "load": FunctionNode(
+        load,
+        name="load",
+        inputs="$ctx.data.normalized",
+        outputs="$ctx.data.persisted",
+    ),
 }
 
 flow = Flow.from_dsl(
@@ -35,9 +45,11 @@ flow = Flow.from_dsl(
 )
 
 context = {}
-result = flow.run(context)
-print(result)                       # stored:42
+flow.run(context)
 print(context["data"]["persisted"])  # stored:42
+
+# Flow.run は加工後のコンテキストを返します。各ノードの出力も
+# `context["payloads"]` に保持されます。
 ```
 
 ## サンプル / CLI
@@ -57,25 +69,33 @@ flow:
   nodes:
     extract:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.extract
+      name: extract
       context:
-        outputs: data.raw
+        inputs:
+          callable: examples.ops.extract
+        outputs: $ctx.data.raw
     transform:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.transform
+      name: transform
       context:
-        inputs: data.raw
-        outputs: data.normalized
+        inputs:
+          callable: examples.ops.transform
+          payload: $ctx.data.raw
+        outputs: $ctx.data.normalized
     load:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.load
+      name: load
       context:
-        inputs: data.normalized
-        outputs: data.persisted
+        inputs:
+          callable: examples.ops.load
+          payload: $ctx.data.normalized
+        outputs: $ctx.data.persisted
   edges:
     - extract >> transform
     - transform >> load
 ```
+
+各ノードの Python 関数は `context.inputs.callable` で指定します。文字列リテラルはビルド時にインポートされ、`$ctx.registry.func` のような式は実行時に解決されます。
 
 ```python
 from illumo_flow import Flow
@@ -85,6 +105,19 @@ context = {}
 flow.run(context)
 print(context["data"]["persisted"])
 ```
+
+### ペイロードとコンテキストの違い
+- `inputs` に従って Flow が各ノードの `payload` を算出します。
+- ノードは次の `payload` を返却し、Flow が `context["payloads"][node_id]` および `outputs` へ書き込みます。
+- 共有状態を読み書きする際は、ノードに渡されるコンテキストビュー（`ctx.get(...)`, `ctx.write(...)`, `ctx.route(...)`）を使用し、辞書を直接更新しないようにします。
+
+
+### 式の書き方
+- `$ctx.*`: 共有コンテキストを参照 (例: `$ctx.data.raw`)。`ctx.*` や短縮記法 `$.foo` と書いても内部的に同じく `$ctx.*` へ正規化されます。
+- `$payload.*`: `context["payloads"]` を参照
+- `$joins.*`: `context["joins"]` を参照
+- `$env.VAR`: 環境変数を取得
+- テンプレート構文 `"こんにちは {{ $ctx.user.name }}"` は `inputs` などで利用可能
 
 ## テスト（リポジトリ利用時）
 ```bash
@@ -101,6 +134,7 @@ pytest
 ## ハイライト
 - DSL エッジ (`A >> B`, `(A & B) >> C`)
 - `context.input` / `context.output` でコンテキスト上の任意パスに読み書き
+- ペイロード優先＋制約付きコンテキストビューによるコール可能インターフェース
 - `Routing(next, confidence, reason)` による動的ルーティング
 - 複数親ノードは自動的にジョイン処理
 - ETL / 分岐 / 並列ジョイン / タイムアウト / 早期停止サンプル

@@ -12,26 +12,38 @@ Python のスクリプト / REPL があれば十分です。サンプル CLI を
 ```python
 from illumo_flow import Flow, FunctionNode
 
-def extract(ctx, _):
+def extract(payload):
     return {"customer_id": 42, "source": "demo"}
 
-def transform(ctx, payload):
+def transform(payload, ctx):
     return {**payload, "normalized": True}
 
-def store(ctx, payload):
+def store(payload, ctx):
     return f"stored:{payload['customer_id']}"
 
 nodes = {
-    "extract": FunctionNode(extract, outputs="data.raw"),
-    "transform": FunctionNode(transform, inputs="data.raw", outputs="data.normalized"),
-    "store": FunctionNode(store, inputs="data.normalized", outputs="data.persisted"),
+    "extract": FunctionNode(extract, name="extract", outputs="$ctx.data.raw"),
+    "transform": FunctionNode(
+        transform,
+        name="transform",
+        inputs="$ctx.data.raw",
+        outputs="$ctx.data.normalized",
+    ),
+    "store": FunctionNode(
+        store,
+        name="store",
+        inputs="$ctx.data.normalized",
+        outputs="$ctx.data.persisted",
+    ),
 }
 
 flow = Flow.from_dsl(nodes=nodes, entry="extract", edges=["extract >> transform", "transform >> store"])
 context = {}
-result = flow.run(context)
-print(result)                      # stored:42
+flow.run(context)
 print(context["data"]["persisted"])  # stored:42
+
+Flow.run は更新後の `context` を返し、各ノードの最終出力は
+`context["payloads"][node_id]` に格納されます。
 ```
 
 ## 2. Fail-Fast の確認
@@ -39,15 +51,23 @@ print(context["data"]["persisted"])  # stored:42
 
 ## 3. ルーティング分岐
 ```python
-from illumo_flow import Flow, FunctionNode, Routing
+from illumo_flow import Flow, FunctionNode
 
-def classify(ctx, payload):
-    ctx["routing"]["classify"] = Routing(next="approve", confidence=90, reason="demo")
+def classify(payload, ctx):
+    ctx.route(next="approve", confidence=90, reason="demo")
 
 nodes = {
-    "classify": FunctionNode(classify),
-    "approve": FunctionNode(lambda ctx, payload: "approved", outputs="decisions.auto"),
-    "reject": FunctionNode(lambda ctx, payload: "rejected", outputs="decisions.auto"),
+    "classify": FunctionNode(classify, name="classify"),
+    "approve": FunctionNode(
+        lambda payload, ctx: "approved",
+        name="approve",
+        outputs="$ctx.decisions.auto",
+    ),
+    "reject": FunctionNode(
+        lambda payload, ctx: "rejected",
+        name="reject",
+        outputs="$ctx.decisions.auto",
+    ),
 }
 
 flow = Flow.from_dsl(nodes=nodes, entry="classify", edges=["classify >> (approve | reject)"])
@@ -61,23 +81,38 @@ print(ctx["decisions"]["auto"])  # approved
 ```python
 from illumo_flow import Flow, FunctionNode
 
-def seed(ctx, _):
+def seed(payload, ctx):
     return {"id": 1}
 
-def geo(ctx, payload):
+def geo(payload, ctx):
     return {"country": "JP"}
 
-def risk(ctx, payload):
+def risk(payload, ctx):
     return {"score": 0.2}
 
-def merge(ctx, payload):
+def merge(payload, ctx):
     return {"geo": payload["geo"], "risk": payload["risk"]}
 
 nodes = {
-    "seed": FunctionNode(seed, outputs="data.customer"),
-    "geo": FunctionNode(geo, inputs="data.customer", outputs="data.geo"),
-    "risk": FunctionNode(risk, inputs="data.customer", outputs="data.risk"),
-    "merge": FunctionNode(merge, inputs="joins.merge", outputs="data.profile"),
+    "seed": FunctionNode(seed, name="seed", outputs="$ctx.data.customer"),
+    "geo": FunctionNode(
+        geo,
+        name="geo",
+        inputs="$ctx.data.customer",
+        outputs="$ctx.data.geo",
+    ),
+    "risk": FunctionNode(
+        risk,
+        name="risk",
+        inputs="$ctx.data.customer",
+        outputs="$ctx.data.risk",
+    ),
+    "merge": FunctionNode(
+        merge,
+        name="merge",
+        inputs="$joins.merge",
+        outputs="$ctx.data.profile",
+    ),
 }
 
 flow = Flow.from_dsl(nodes=nodes, entry="seed", edges=["seed >> (geo | risk)", "(geo & risk) >> merge"])
@@ -91,23 +126,25 @@ print(ctx["data"]["profile"])  # {'geo': {...}, 'risk': {...}}
 ```python
 from illumo_flow import Flow, FunctionNode
 
-def split(ctx, payload):
+def split(payload, ctx):
     return {"left": payload[::2], "right": payload[1::2]}
 
-def combine(ctx, payload):
+def combine(payload, ctx):
     return payload["left"] + payload["right"]
 
 nodes = {
-    "seed": FunctionNode(lambda ctx, _: "abcdef", outputs="data.source"),
+    "seed": FunctionNode(lambda payload, ctx: "abcdef", name="seed", outputs="$ctx.data.source"),
     "split": FunctionNode(
         split,
-        inputs="data.source",
-        outputs={"left": "data.left", "right": "data.right"},
+        name="split",
+        inputs="$ctx.data.source",
+        outputs={"left": "$ctx.data.left", "right": "$ctx.data.right"},
     ),
     "combine": FunctionNode(
         combine,
-        inputs={"left": "data.left", "right": "data.right"},
-        outputs="data.result",
+        name="combine",
+        inputs={"left": "$ctx.data.left", "right": "$ctx.data.right"},
+        outputs="$ctx.data.result",
     ),
 }
 
@@ -125,25 +162,30 @@ flow:
   nodes:
     seed:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.seed
-      context:
-        outputs: data.source
-    split:
-      type: illumo_flow.core.FunctionNode
-      callable: examples.ops.split_text
-      context:
-        inputs: data.source
-        outputs:
-          left: data.left
-          right: data.right
-    combine:
-      type: illumo_flow.core.FunctionNode
-      callable: examples.ops.combine_text
+      name: seed
       context:
         inputs:
-          left: data.left
-          right: data.right
-        outputs: data.result
+          callable: examples.ops.seed
+        outputs: $ctx.data.source
+    split:
+      type: illumo_flow.core.FunctionNode
+      name: split
+      context:
+        inputs:
+          callable: examples.ops.split_text
+          payload: $ctx.data.source
+        outputs:
+          left: $ctx.data.left
+          right: $ctx.data.right
+    combine:
+      type: illumo_flow.core.FunctionNode
+      name: combine
+      context:
+        inputs:
+          callable: examples.ops.combine_text
+          left: $ctx.data.left
+          right: $ctx.data.right
+        outputs: $ctx.data.result
   edges:
     - seed >> split
     - split >> combine
@@ -159,14 +201,18 @@ from illumo_flow import Flow, FunctionNode
 
 attempts = {"count": 0}
 
-def call_api(ctx, _):
+def call_api(payload, ctx):
     attempts["count"] += 1
     if attempts["count"] < 3:
         time.sleep(0.1)
         raise RuntimeError("temporary failure")
     return {"status": 200}
 
-flow = Flow.from_dsl(nodes={"call": FunctionNode(call_api, outputs="data.api")}, entry="call", edges=[])
+flow = Flow.from_dsl(
+    nodes={"call": FunctionNode(call_api, name="call", outputs="$ctx.data.api")},
+    entry="call",
+    edges=[],
+)
 flow.run({})
 print(attempts["count"])  # 3
 ```
@@ -174,14 +220,17 @@ Flow 自体は Fail-Fast のまま、リトライ制御はノードで完結さ�
 
 ## 7. 早期停止
 ```python
-from illumo_flow import Flow, FunctionNode, Routing
+from illumo_flow import Flow, FunctionNode
 
-def guard(ctx, payload):
-    ctx["routing"]["guard"] = Routing(next=None, reason="threshold")
+def guard(payload, ctx):
+    ctx.route(next=None, reason="threshold", confidence=100)
 
 nodes = {
-    "guard": FunctionNode(guard),
-    "downstream": FunctionNode(lambda ctx, payload: "should_not_run"),
+    "guard": FunctionNode(guard, name="guard"),
+    "downstream": FunctionNode(
+        lambda payload, ctx: "should_not_run",
+        name="downstream",
+    ),
 }
 
 flow = Flow.from_dsl(nodes=nodes, entry="guard", edges=["guard >> downstream"])

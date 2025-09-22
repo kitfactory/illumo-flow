@@ -27,10 +27,10 @@
 ```python
 from illumo import Flow, FunctionNode
 
-start = FunctionNode(lambda ctx, x: x, name="start", outputs="data.start")
-A     = FunctionNode(lambda ctx, x: f"A:{x}", name="A", inputs="data.start", outputs="data.A")
-B     = FunctionNode(lambda ctx, x: f"B:{x}", name="B", inputs="data.start", outputs="data.B")
-join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join", inputs="joins.join", outputs="data.join")
+start = FunctionNode(lambda payload, ctx: payload, name="start", outputs="$ctx.data.start")
+A     = FunctionNode(lambda payload, ctx: f"A:{payload}", name="A", inputs="$ctx.data.start", outputs="$ctx.data.A")
+B     = FunctionNode(lambda payload, ctx: f"B:{payload}", name="B", inputs="$ctx.data.start", outputs="$ctx.data.B")
+join  = FunctionNode(lambda payload, ctx: f"JOIN:{payload['A']},{payload['B']}", name="join", inputs="$joins.join", outputs="$ctx.data.join")
 
 flow = Flow.from_dsl(
     nodes={"start": start, "A": A, "B": B, "join": join},
@@ -42,8 +42,8 @@ flow = Flow.from_dsl(
 )
 
 ctx = {}
-result = flow.run(ctx, 42)
-print(result)         # "JOIN:A:42,B:42"
+flow.run(ctx, user_input=42)
+print(ctx["payloads"]["join"])  # "JOIN:A:42,B:42"
 print(ctx["steps"])  # execution trace
 ```
 - Sugar operators keep the flow declarative while letting nodes hide imperative behavior
@@ -64,32 +64,36 @@ flow:
   nodes:
     start:
       type: illumo_flow.core.FunctionNode
-      callable: start_func
       context:
+        inputs:
+          callable: start_func
         outputs: data.start
     A:
       type: illumo_flow.core.FunctionNode
-      callable: node_a
       context:
-        inputs: data.start
+        inputs:
+          callable: node_a
+          payload: $ctx.data.start
         outputs: data.A
     B:
       type: illumo_flow.core.FunctionNode
-      callable: node_b
       context:
-        inputs: data.start
+        inputs:
+          callable: node_b
+          payload: $ctx.data.start
         outputs: data.B
     join:
       type: illumo_flow.core.FunctionNode
-      callable: join_func
       context:
-        inputs: joins.join
+        inputs:
+          callable: join_func
+          payload: $joins.join
         outputs: data.join
   edges:
     - start >> (A | B)
     - (A & B) >> join
 ```
-- Loaders resolve symbolic callables (for example `start_func`) to Python objects via import strings or registries
+- Loaders resolve symbolic callables (for example `start_func`) via `context.inputs.callable`, importing literals and evaluating expressions when required
 - Parsed configs normalize into the internal dictionary that `Flow` expects, keeping code-defined and config-defined flows interoperable
 - Node entries may carry metadata (`summary`, `inputs`, `returns`) that populate `node.describe()` for documentation and validation
 - Custom loaders can enforce environment restrictions (allowed modules, sandbox policies) before instantiating nodes

@@ -12,19 +12,29 @@ pip install illumo-flow
 from illumo_flow import Flow, FunctionNode
 
 # Define lightweight callables (each works on a shared context dict)
-def extract(ctx, _):
+def extract(payload):
     return {"customer_id": 42, "source": "demo"}
 
-def transform(ctx, payload):
+def transform(payload, ctx):
     return {**payload, "normalized": True}
 
-def load(ctx, payload):
+def load(payload, ctx):
     return f"stored:{payload['customer_id']}"
 
 nodes = {
-    "extract": FunctionNode(extract, outputs="data.raw"),
-    "transform": FunctionNode(transform, inputs="data.raw", outputs="data.normalized"),
-    "load": FunctionNode(load, inputs="data.normalized", outputs="data.persisted"),
+    "extract": FunctionNode(extract, name="extract", outputs="$ctx.data.raw"),
+    "transform": FunctionNode(
+        transform,
+        name="transform",
+        inputs="$ctx.data.raw",
+        outputs="$ctx.data.normalized",
+    ),
+    "load": FunctionNode(
+        load,
+        name="load",
+        inputs="$ctx.data.normalized",
+        outputs="$ctx.data.persisted",
+    ),
 }
 
 flow = Flow.from_dsl(
@@ -34,9 +44,11 @@ flow = Flow.from_dsl(
 )
 
 context = {}
-result = flow.run(context)
-print(result)                 # stored:42
+flow.run(context)
 print(context["data"]["persisted"])  # stored:42
+
+# Flow.run now returns the mutated context; per-node outputs also remain
+# available under `context["payloads"]`.
 ```
 
 ## Examples & CLI
@@ -57,25 +69,40 @@ flow:
   nodes:
     extract:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.extract
+      name: extract
       context:
-        outputs: data.raw
+        inputs:
+          callable: examples.ops.extract
+        outputs: $ctx.data.raw
     transform:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.transform
+      name: transform
       context:
-        inputs: data.raw
-        outputs: data.normalized
+        inputs:
+          callable: examples.ops.transform
+          payload: $ctx.data.raw
+        outputs: $ctx.data.normalized
     load:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.load
+      name: load
       context:
-        inputs: data.normalized
-        outputs: data.persisted
+        inputs:
+          callable: examples.ops.load
+          payload: $ctx.data.normalized
+        outputs: $ctx.data.persisted
   edges:
     - extract >> transform
     - transform >> load
 ```
+
+`context.inputs.callable` supplies the Python callable path for each node. Literal strings are imported at build time, while expressions (e.g. `$ctx.registry.my_func`) are evaluated during execution.
+
+### Expressions
+- `$ctx.*` accesses the shared context (e.g. `$ctx.data.raw`). Writing `ctx.*` or the shorthand `$.path` is automatically normalized to the same form.
+- `$payload.*` reads from `context["payloads"]`
+- `$joins.*` reads from `context["joins"]`
+- `$env.VAR` reads environment variables
+- Template strings like `"Hello {{ $ctx.user.name }}"` are supported in `inputs` definitions
 
 ```python
 from illumo_flow import Flow
@@ -85,6 +112,11 @@ context = {}
 flow.run(context)
 print(context["data"]["persisted"])
 ```
+
+### Payload vs Context
+- Flow resolves each node's `payload` from the declared `inputs`.
+- Nodes return the next `payload`; Flow stores it under `context["payloads"][node_id]` and writes to the paths declared in `outputs`.
+- Within a node, use the context view helpers (`ctx.get(...)`, `ctx.write(...)`, `ctx.route(...)`) when shared state needs to be read or updated. Direct mutation of the underlying dictionary is discouraged.
 
 ## Testing (repository clone)
 ```bash
@@ -100,7 +132,7 @@ The suite in `tests/test_flow_examples.py` validates the sample DSL flows using 
 
 ## Highlights
 - DSL edges such as `A >> B`, `(A & B) >> C`
-- `(context, payload)` callable interface with configurable context paths
+- Payload-first callable interface with a constrained context view helper
 - Routing metadata via `Routing(next, confidence, reason)`
 - Built-in join handling (nodes with multiple parents automatically wait for all inputs)
 - Examples covering ETL, dynamic routing, fan-out/fan-in, timeout handling, and early stop

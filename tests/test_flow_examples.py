@@ -19,47 +19,34 @@ from examples.sample_flows import EXAMPLE_FLOWS
 
 
 def build_flow(example):
-    nodes = {}
-    for node_id, node_cfg in example["dsl"]["nodes"].items():
-        callable_path = node_cfg["callable"].split(".")[-1]
-        func = getattr(ops, callable_path)
-        context_cfg = node_cfg.get("context", {})
-        inputs_cfg = context_cfg.get("inputs", context_cfg.get("input"))
-        outputs_cfg = context_cfg.get("outputs", context_cfg.get("output"))
-        node = FunctionNode(
-            func,
-            inputs=inputs_cfg,
-            outputs=outputs_cfg,
-        )
-        if "default_route" in node_cfg:
-            node.default_route = node_cfg["default_route"]
-        nodes[node_id] = node
-    edges = example["dsl"].get("edges", [])
-    return Flow.from_dsl(nodes=nodes, entry=example["dsl"]["entry"], edges=edges)
+    return Flow.from_config({"flow": example["dsl"]})
 
 
 @pytest.mark.parametrize("example", EXAMPLE_FLOWS, ids=lambda ex: ex["id"])
 def test_examples_run_without_error(example):
     flow = build_flow(example)
     context = {}
-    result = flow.run(context)
+    final_context = flow.run(context)
     assert context["steps"]  # execution trace is captured
     assert context["payloads"]  # node outputs are recorded
     assert example["dsl"]["entry"] in flow.nodes
-    assert result in context["payloads"].values()
+    assert final_context is context
     if example["id"] == "linear_etl":
         assert context["data"]["persisted"] == "persisted"
 
 
 def test_join_node_receives_parent_dictionary():
     def make_value(label):
-        return lambda ctx, payload: {"label": label}
+        return lambda payload, ctx: {"label": label}
 
     nodes = {
-        "start": FunctionNode(lambda ctx, payload: payload),
-        "A": FunctionNode(make_value("A")),
-        "B": FunctionNode(make_value("B")),
-        "join": FunctionNode(lambda ctx, payload: payload["A"]["label"] + payload["B"]["label"]),
+        "start": FunctionNode(lambda payload, ctx: payload, name="start"),
+        "A": FunctionNode(make_value("A"), name="A"),
+        "B": FunctionNode(make_value("B"), name="B"),
+        "join": FunctionNode(
+            lambda payload, ctx: payload["A"]["label"] + payload["B"]["label"],
+            name="join",
+        ),
     }
     flow = Flow.from_dsl(
         nodes=nodes,
@@ -67,8 +54,9 @@ def test_join_node_receives_parent_dictionary():
         edges=["start >> (A | B)", "(A & B) >> join"],
     )
     ctx = {}
-    result = flow.run(ctx, user_input="ignored")
-    assert result == "AB"
+    final_context = flow.run(ctx, user_input="ignored")
+    assert final_context is ctx
+    assert ctx["payloads"]["join"] == "AB"
     assert ctx["joins"]["join"] == {
         "A": {"label": "A"},
         "B": {"label": "B"},
@@ -77,9 +65,19 @@ def test_join_node_receives_parent_dictionary():
 
 def test_context_paths_are_honored():
     nodes = {
-        "extract": FunctionNode(ops.extract, outputs="data.raw"),
-        "transform": FunctionNode(ops.transform, inputs="data.raw", outputs="data.normalized"),
-        "load": FunctionNode(ops.load, inputs="data.normalized", outputs="data.persisted"),
+        "extract": FunctionNode(ops.extract, name="extract", outputs="$ctx.data.raw"),
+        "transform": FunctionNode(
+            ops.transform,
+            name="transform",
+            inputs="$ctx.data.raw",
+            outputs="$ctx.data.normalized",
+        ),
+        "load": FunctionNode(
+            ops.load,
+            name="load",
+            inputs="$ctx.data.normalized",
+            outputs="$ctx.data.persisted",
+        ),
     }
 
     flow = Flow.from_dsl(
@@ -89,20 +87,22 @@ def test_context_paths_are_honored():
     )
 
     ctx = {}
-    result = flow.run(ctx)
-
-    assert result == "persisted"
+    flow.run(ctx)
     assert ctx["data"]["raw"]["customer_id"] == 42
     assert ctx["data"]["normalized"]["normalized"] is True
     assert ctx["data"]["persisted"] == "persisted"
 
 
 def test_multiple_outputs_configuration():
-    def producer(ctx, payload):
+    def producer(payload, ctx):
         return {"a": 1, "b": 2}
 
     nodes = {
-        "producer": FunctionNode(producer, outputs={"a": "data.alpha", "b": "data.beta"}),
+        "producer": FunctionNode(
+            producer,
+            name="producer",
+            outputs={"a": "$ctx.data.alpha", "b": "$ctx.data.beta"},
+        ),
     }
 
     flow = Flow.from_dsl(nodes=nodes, entry="producer", edges=[])
@@ -121,21 +121,27 @@ def test_flow_from_yaml_config(tmp_path):
           nodes:
             extract:
               type: illumo_flow.core.FunctionNode
-              callable: examples.ops.extract
+              name: extract
               context:
-                outputs: data.raw
+                inputs:
+                  callable: examples.ops.extract
+                outputs: $ctx.data.raw
             transform:
               type: illumo_flow.core.FunctionNode
-              callable: examples.ops.transform
+              name: transform
               context:
-                inputs: data.raw
-                outputs: data.normalized
+                inputs:
+                  callable: examples.ops.transform
+                  payload: $ctx.data.raw
+                outputs: $ctx.data.normalized
             load:
               type: illumo_flow.core.FunctionNode
-              callable: examples.ops.load
+              name: load
               context:
-                inputs: data.normalized
-                outputs: data.persisted
+                inputs:
+                  callable: examples.ops.load
+                  payload: $ctx.data.normalized
+                outputs: $ctx.data.persisted
           edges:
             - extract >> transform
             - transform >> load
@@ -147,9 +153,8 @@ def test_flow_from_yaml_config(tmp_path):
 
     flow = Flow.from_config(config_path)
     ctx = {}
-    result = flow.run(ctx)
+    flow.run(ctx)
 
-    assert result == "persisted"
     assert ctx["data"]["persisted"] == "persisted"
     assert ctx["payloads"]["load"] == "persisted"
 
@@ -159,3 +164,41 @@ def test_flow_from_yaml_config(tmp_path):
     ctx2 = {}
     flow_from_dict.run(ctx2)
     assert ctx2["data"]["persisted"] == "persisted"
+
+
+def test_expression_inputs_and_env(monkeypatch):
+    monkeypatch.setenv("CITY", "Tokyo")
+
+    nodes = {
+        "greet": FunctionNode(
+            lambda payload, ctx: f"{payload['greeting']}:{payload['city']}",
+            name="greet",
+            inputs={
+                "greeting": "おはようございます {{ $.user.name }}",
+                "city": "$env.CITY",
+            },
+            outputs="$.data.message",
+        ),
+    }
+
+    flow = Flow.from_dsl(nodes=nodes, entry="greet", edges=[])
+    ctx = {"user": {"name": "太郎", "email": "taro@example.com"}}
+    flow.run(ctx)
+    assert ctx["data"]["message"] == "おはようございます 太郎:Tokyo"
+
+
+def test_callable_resolved_from_context_expression():
+    nodes = {
+        "dyn": FunctionNode(
+            callable_expression="$.registry.greeter",
+            name="dyn",
+            outputs="$ctx.data.value",
+        )
+    }
+
+    flow = Flow.from_dsl(nodes=nodes, entry="dyn", edges=[])
+    ctx = {"registry": {"greeter": ops.extract}}
+    flow.run(ctx)
+
+    assert ctx["data"]["value"]["customer_id"] == 42
+    assert ctx["data"]["value"]["source"] == "demo"

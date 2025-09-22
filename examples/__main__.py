@@ -14,9 +14,7 @@ for candidate in (SRC, ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from illumo_flow import Flow, FunctionNode
-
-from . import ops
+from illumo_flow import Flow
 from .sample_flows import EXAMPLE_FLOWS
 
 
@@ -24,23 +22,7 @@ def build_flow(example_id: str) -> Flow:
     example = next((ex for ex in EXAMPLE_FLOWS if ex["id"] == example_id), None)
     if example is None:
         raise SystemExit(f"Example '{example_id}' not found")
-    nodes = {}
-    for node_id, node_cfg in example["dsl"]["nodes"].items():
-        func_name = node_cfg["callable"].split(".")[-1]
-        func = getattr(ops, func_name)
-        context_cfg = node_cfg.get("context", {})
-        inputs_cfg = context_cfg.get("inputs", context_cfg.get("input"))
-        outputs_cfg = context_cfg.get("outputs", context_cfg.get("output"))
-        node = FunctionNode(
-            func,
-            inputs=inputs_cfg,
-            outputs=outputs_cfg,
-        )
-        if "default_route" in node_cfg:
-            node.default_route = node_cfg["default_route"]
-        nodes[node_id] = node
-    flow = Flow.from_dsl(nodes=nodes, entry=example["dsl"]["entry"], edges=example["dsl"].get("edges", []))
-    return flow
+    return Flow.from_config({"flow": example["dsl"]})
 
 
 def main(argv: Any = None) -> None:
@@ -49,10 +31,9 @@ def main(argv: Any = None) -> None:
     args = parser.parse_args(argv)
     flow = build_flow(args.example_id)
     context = {}
-    result = flow.run(context)
-    print("result:", result)
-    print("steps:", context["steps"])
+    flow.run(context)
     print("payloads:", context["payloads"])
+    print("steps:", context["steps"])
 
 
 if __name__ == "__main__":

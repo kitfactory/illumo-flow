@@ -24,18 +24,19 @@
 - 失敗時は早期終了し、事後分析用の診断情報を記録する。
 
 ### Node
-- 同期メソッド `run(user_input: str | None = None, context: dict) -> dict` を実装し、必要に応じて `run_async` で委譲する。
+- サブクラスは `handle(payload, ctx_view) -> payload` を実装する。`payload` は `inputs` で解決された値であり、`ctx_view` は読み取りとルーティング指示 (`ctx_view.route(...)`)、限定的な書き込み (`ctx_view.write(...)`) を提供する。
+- `run_async` は既定で `handle` を同期呼び出しし、必要に応じて拡張できる。
 - ツールやバリデーションのために `describe()` でメタデータを公開し、参照/書き込みするコンテキストキーを列挙する。
 - 単一責務を守り、1ノード=1処理または1つの判断境界とする。
-- 初期化時に静的後続 (`self.next_route`) を設定するか、実行時に戻り値のコンテキストへ `Routing` エントリを添付する。
-- `inputs` / `outputs`（DSL の `context.inputs` / `context.outputs`）を使って、コンテキスト上の特定のパスから読み書きする。
-- Flow が必要なネームスペースを事前に用意するため、ノードは通常の辞書操作だけで読み書きできる。
+- 初期化時に静的後続 (`self.next_route`) を設定するか、実行時に `ctx_view.route(...)` を呼び出して分岐を指示する。
+- `inputs` / `outputs`（DSL の `context.inputs` / `context.outputs`）を使って、コンテキスト上の特定のパスから読み書きする。ノードは戻り値として payload を返すだけで、Flow が書き込みを代行する。
+- Flow は必要なネームスペースを事前に用意し、ノードは式 (`$ctx.*` 等) で参照する。
 - グラフ上のノードIDは Flow が組み立て時に割り当て（DSL/設定のキーを利用）、ノード実装はID非依存とし、同一インスタンスを複数フローで使い回せるようにする。
-- `name` を省略した場合はノードIDが自動で名称に使われ、ログや診断情報で識別しやすくなる。
+- すべてのノードは `name` を必ず指定し、Flow は空文字を拒否して診断情報に利用する（グラフ上のノードIDとは別管理）。
 - 実装上、内部メトリクス用途のプライベート UUID を持つことは許容されるが、ルーティングやコンテキストキーとして公開しない。
 - エッジで定義された親が複数ある場合、そのノードは自動的に全ての完了を待ってから実行される。
 - ジョイン参加時は、下流で衝突なくマージできる構造化ペイロードを返す。
-- Flow が用意した予約キー以外のネームスペースは破壊的に変更しないよう注意する。
+- Flow が用意した予約キー以外のネームスペースは `ctx_view.write()` などを通じて限定的に更新する。
 
 ### Context
 - 以下の安定したネームスペースを提供する:
@@ -49,6 +50,10 @@
 - `describe()` で宣言された `context_inputs` / `context_outputs` などを参照し、Flow が追加キーを事前確保・検証できる。
 - `context["payloads"]`: 各ノードが最後に生成したペイロード。エントリノードは Flow が初期化し、ノード実装は自分のスロットを更新する。
 - `context.output` に指定したパスへノードの出力を格納したり、`context.input` で指定したパスから入力を取得したりできる。
+- `$` で始まる文字列は式として評価されます（例: `$ctx.data.raw`, `$env.API_KEY`）。
+- 文字列内の `{{ ... }}` も式を受け付け、テンプレートとして展開されます。
+- ノードに渡される `payload` は `inputs` から解決された値であり、共有 `context` とは分離しています。ノードは戻り値として `payload` を返し、Flow が `context["payloads"]` と `outputs` へ書き込みます。
+- `ctx.*` / `payload.*` / `joins.*` といった `$` 省略形は自動的に `$ctx.*` 等へ正規化されます。`$.foo` のような短縮記法も `$ctx.foo` として扱われます。それ以外の文字列はリテラルのままです。
 
 ## ルーティング設計
 ### 静的ルーティング
@@ -80,21 +85,27 @@ flow:
   nodes:
     extract:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.extract
+      name: extract
       context:
-        output: data.raw
+        inputs:
+          callable: examples.ops.extract
+        output: $ctx.data.raw
     transform:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.transform
+      name: transform
       context:
-        input: data.raw
-        output: data.normalized
+        inputs:
+          callable: examples.ops.transform
+          payload: $ctx.data.raw
+        output: $ctx.data.normalized
     load:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.load
+      name: load
       context:
-        input: data.normalized
-        output: data.persisted
+        inputs:
+          callable: examples.ops.load
+          payload: $ctx.data.normalized
+        output: $ctx.data.persisted
   edges:
     - extract >> transform
     - transform >> load
@@ -108,7 +119,11 @@ from illumo_flow import Flow
 flow = Flow.from_config("flow.yaml")
 context = {}
 flow.run(context)
+
+`Flow.run` は更新後の `context` を返し、各ノードの結果は `context["payloads"]` に保持されます。
 ```
+
+`FunctionNode` は `context.inputs.callable` に実装パスを指定します。リテラル文字列はフロー構築時にインポートされ、`$.registry.transform` のような式は実行時にコンテキストから評価されます。
 
 ### ファンアウト / ブロードキャスト
 - `A | B` の両エッジを発火させるケースでは、Flow が出力ペイロードをターゲットごとに複製し、親ノードIDを付与する。
@@ -129,8 +144,8 @@ flow.run(context)
 2. 実行状態を初期化し（コンテキスト予約キー、ready キューにエントリノードを投入）、ループを開始する。
 3. ディスパッチループ:
    - 並列上限を守りつつキューからノードを取得。
-   - 現在のコンテキストスナップショットでノードを実行（同期/非同期）。
-   - 成功時: ステップを記録し、コンテキスト差分をマージし、`Routing` エントリを読み取って後続を投入し、消費した指示をクリア。
+   - `inputs` からペイロードを解決し、`Node.handle(payload, ctx_view)` を呼び出す。
+   - 成功時: ステップを記録し、戻り値を `outputs` へ保存し、`ctx_view.route(...)` を読み取って後続を投入し、消費した指示をクリア。
    - 失敗時: 診断情報を収集し、失敗キーを設定し、ループを中断。
 4. 終了処理: 最終ノードが出力したペイロードを `Flow.run` の戻り値として返し、コンテキストはインプレースに更新された状態で残す。
 

@@ -27,10 +27,10 @@
 ```python
 from illumo import Flow, FunctionNode
 
-start = FunctionNode(lambda ctx, x: x, name="start", outputs="data.start")
-A     = FunctionNode(lambda ctx, x: f"A:{x}", name="A", inputs="data.start", outputs="data.A")
-B     = FunctionNode(lambda ctx, x: f"B:{x}", name="B", inputs="data.start", outputs="data.B")
-join  = FunctionNode(lambda ctx, inp: f"JOIN:{inp['A']},{inp['B']}", name="join", inputs="joins.join", outputs="data.join")
+start = FunctionNode(lambda payload, ctx: payload, name="start", outputs="$ctx.data.start")
+A     = FunctionNode(lambda payload, ctx: f"A:{payload}", name="A", inputs="$ctx.data.start", outputs="$ctx.data.A")
+B     = FunctionNode(lambda payload, ctx: f"B:{payload}", name="B", inputs="$ctx.data.start", outputs="$ctx.data.B")
+join  = FunctionNode(lambda payload, ctx: f"JOIN:{payload['A']},{payload['B']}", name="join", inputs="$joins.join", outputs="$ctx.data.join")
 
 flow = Flow.from_dsl(
     nodes={"start": start, "A": A, "B": B, "join": join},
@@ -42,8 +42,8 @@ flow = Flow.from_dsl(
 )
 
 ctx = {}
-result = flow.run(ctx, 42)
-print(result)         # "JOIN:A:42,B:42"
+flow.run(ctx, user_input=42)
+print(ctx["payloads"]["join"])  # "JOIN:A:42,B:42"
 print(ctx["steps"])  # 実行ログ
 ```
 - シュガー演算子で宣言的な DSL を維持しつつ、命令的ロジックはノード内部に閉じ込める
@@ -64,32 +64,36 @@ flow:
   nodes:
     start:
       type: illumo_flow.core.FunctionNode
-      callable: start_func
       context:
+        inputs:
+          callable: start_func
         outputs: data.start
     A:
       type: illumo_flow.core.FunctionNode
-      callable: node_a
       context:
-        inputs: data.start
+        inputs:
+          callable: node_a
+          payload: $ctx.data.start
         outputs: data.A
     B:
       type: illumo_flow.core.FunctionNode
-      callable: node_b
       context:
-        inputs: data.start
+        inputs:
+          callable: node_b
+          payload: $ctx.data.start
         outputs: data.B
     join:
       type: illumo_flow.core.FunctionNode
-      callable: join_func
       context:
-        inputs: joins.join
+        inputs:
+          callable: join_func
+          payload: $joins.join
         outputs: data.join
   edges:
     - start >> (A | B)
     - (A & B) >> join
 ```
-- ローダーは `start_func` のようなシンボル名を import 文字列やレジストリを通じて実際の Python オブジェクトへ解決する
+- ローダーは `context.inputs.callable` に記載された `start_func` のようなシンボル名を import 文字列やレジストリを通じて実際の Python オブジェクトへ解決する
 - パースされた設定は `Flow` が期待する内部辞書形式に正規化され、コード定義フローとの共存が可能
 - ノード定義には `summary` や `inputs`、`returns` といったメタデータを含め、`node.describe()` に反映してドキュメント生成や検証に活用できる
 - カスタムローダーを用いれば、許可モジュールやサンドボックス方針など環境制約を実行前に検証できる

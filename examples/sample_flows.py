@@ -12,47 +12,53 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
         "description": "Sequential ETL pipeline that must respect ordering and fail fast.",
         "important_points": [
             "Deterministic node order",
-            "Context accumulation (`context.outputs.raw`, `context.outputs.transformed`)",
+            "Context accumulation via $ctx.data.raw and $ctx.data.normalized",
             "Fail-fast propagation when middle node raises",
         ],
         "dsl": {
             "entry": "extract",
             "nodes": {
                 "extract": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.extract",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Read source payload",
-                        "context_outputs": ["outputs.raw"],
+                        "context_outputs": ["$ctx.data.raw"],
                     },
                     "context": {
-                        "outputs": "data.raw",
+                        "inputs": {
+                            "callable": "examples.ops.extract",
+                        },
+                        "outputs": "$ctx.data.raw",
                     },
                 },
                 "transform": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.transform",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Normalize raw payload",
-                        "context_inputs": ["outputs.raw"],
-                        "context_outputs": ["outputs.normalized"],
+                        "context_inputs": ["$ctx.data.raw"],
+                        "context_outputs": ["$ctx.data.normalized"],
                     },
                     "context": {
-                        "inputs": "data.raw",
-                        "outputs": "data.normalized",
+                        "inputs": {
+                            "callable": "examples.ops.transform",
+                            "payload": "$ctx.data.raw",
+                        },
+                        "outputs": "$ctx.data.normalized",
                     },
                 },
                 "load": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.load",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Persist normalized payload",
-                        "context_inputs": ["outputs.normalized"],
-                        "context_outputs": ["outputs.persisted"],
+                        "context_inputs": ["$ctx.data.normalized"],
+                        "context_outputs": ["$ctx.data.persisted"],
                     },
                     "context": {
-                        "inputs": "data.normalized",
-                        "outputs": "data.persisted",
+                        "inputs": {
+                            "callable": "examples.ops.load",
+                            "payload": "$ctx.data.normalized",
+                        },
+                        "outputs": "$ctx.data.persisted",
                     },
                 },
             },
@@ -67,54 +73,64 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
         "description": "Router node selects downstream path using confidence scores.",
         "important_points": [
             "Node-managed routing metadata with `Routing.next` and `Routing.confidence`",
-            "Audit trail stored under `context.routing.classify`",
+            "Audit trail stored under `$ctx.routing.classify`",
             "Fallback target via `default_route` when confidence is low",
         ],
         "dsl": {
             "entry": "classify",
             "nodes": {
                 "classify": {
-                    "type": "illumo.nodes.RouterNode",
-                    "callable": "examples.ops.classify",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Choose approve/reject path",
-                        "context_outputs": ["routing.classify"],
+                        "context_outputs": ["$ctx.routing.classify"],
                     },
                     "default_route": "manual_review",
+                    "context": {
+                        "inputs": {
+                            "callable": "examples.ops.classify",
+                        },
+                    },
                 },
                 "approve": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.approve",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Auto approval",
-                        "context_inputs": ["inputs.application"],
-                        "context_outputs": ["outputs.decision"],
+                        "context_inputs": ["$ctx.inputs.application"],
+                        "context_outputs": ["$ctx.decisions.auto"],
                     },
                     "context": {
-                        "outputs": "decisions.auto",
+                        "inputs": {
+                            "callable": "examples.ops.approve",
+                        },
+                        "outputs": "$ctx.decisions.auto",
                     },
                 },
                 "reject": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.reject",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Auto rejection",
-                        "context_inputs": ["inputs.application"],
-                        "context_outputs": ["outputs.decision"],
+                        "context_inputs": ["$ctx.inputs.application"],
+                        "context_outputs": ["$ctx.decisions.auto"],
                     },
                     "context": {
-                        "outputs": "decisions.auto",
+                        "inputs": {
+                            "callable": "examples.ops.reject",
+                        },
+                        "outputs": "$ctx.decisions.auto",
                     },
                 },
                 "manual_review": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.manual_review",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Escalate to human reviewer",
-                        "context_outputs": ["outputs.review_ticket"],
+                        "context_outputs": ["$ctx.decisions.manual_review"],
                     },
                     "context": {
-                        "outputs": "decisions.manual_review",
+                        "inputs": {
+                            "callable": "examples.ops.manual_review",
+                        },
+                        "outputs": "$ctx.decisions.manual_review",
                     },
                 },
             },
@@ -128,59 +144,67 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
         "description": "Fan-out to enrichment nodes and fan-in via join requirements.",
         "important_points": [
             "Parallel scheduling across geo/risk",
-            "Join buffer consolidation under `context.joins.enrich`",
+            "Join buffer consolidation under `$joins.merge`",
             "Downstream node consumes deterministic merged payload",
         ],
         "dsl": {
             "entry": "seed",
             "nodes": {
                 "seed": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.seed",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Seed enrichment inputs",
-                        "context_outputs": ["inputs.customer"],
+                        "context_outputs": ["$ctx.data.customer"],
                     },
                     "context": {
-                        "outputs": "data.customer",
+                        "inputs": {
+                            "callable": "examples.ops.seed",
+                        },
+                        "outputs": "$ctx.data.customer",
                     },
                 },
                 "geo": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.enrich_geo",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Geo enrichment",
-                        "context_inputs": ["inputs.customer"],
-                        "context_outputs": ["joins.enrich.geo"],
+                        "context_inputs": ["$ctx.data.customer"],
+                        "context_outputs": ["$ctx.data.geo"],
                     },
                     "context": {
-                        "inputs": "data.customer",
-                        "outputs": "data.geo",
+                        "inputs": {
+                            "callable": "examples.ops.enrich_geo",
+                            "payload": "$ctx.data.customer",
+                        },
+                        "outputs": "$ctx.data.geo",
                     },
                 },
                 "risk": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.enrich_risk",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Risk enrichment",
-                        "context_inputs": ["inputs.customer"],
-                        "context_outputs": ["joins.enrich.risk"],
+                        "context_inputs": ["$ctx.data.customer"],
+                        "context_outputs": ["$ctx.data.risk"],
                     },
                     "context": {
-                        "inputs": "data.customer",
-                        "outputs": "data.risk",
+                        "inputs": {
+                            "callable": "examples.ops.enrich_risk",
+                            "payload": "$ctx.data.customer",
+                        },
+                        "outputs": "$ctx.data.risk",
                     },
                 },
                 "merge": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.merge_enrichment",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Merge geo and risk",
-                        "context_inputs": ["joins.enrich.geo", "joins.enrich.risk"],
-                        "context_outputs": ["outputs.profile"],
+                        "context_inputs": ["$joins.merge.geo", "$joins.merge.risk"],
+                        "context_outputs": ["$ctx.data.profile"],
                     },
                     "context": {
-                        "outputs": "data.profile",
+                        "inputs": {
+                            "callable": "examples.ops.merge_enrichment",
+                        },
+                        "outputs": "$ctx.data.profile",
                     },
                 },
             },
@@ -202,27 +226,31 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
             "entry": "call_api",
             "nodes": {
                 "call_api": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.call_api_with_timeout",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Invoke external API with internal timeout",
-                        "context_outputs": ["outputs.api_response"],
+                        "context_outputs": ["$ctx.data.api_response"],
                     },
                     "context": {
-                        "outputs": "data.api_response",
+                        "inputs": {
+                            "callable": "examples.ops.call_api_with_timeout",
+                        },
+                        "outputs": "$ctx.data.api_response",
                     },
                 },
                 "parse": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.parse_response",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Parse API response",
-                        "context_inputs": ["outputs.api_response"],
-                        "context_outputs": ["outputs.parsed"],
+                        "context_inputs": ["$ctx.data.api_response"],
+                        "context_outputs": ["$ctx.data.api_parsed"],
                     },
                     "context": {
-                        "inputs": "data.api_response",
-                        "outputs": "data.api_parsed",
+                        "inputs": {
+                            "callable": "examples.ops.parse_response",
+                            "payload": "$ctx.data.api_response",
+                        },
+                        "outputs": "$ctx.data.api_parsed",
                     },
                 },
             },
@@ -243,19 +271,28 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
             "entry": "guard",
             "nodes": {
                 "guard": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.guard_threshold",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Check thresholds before proceeding",
-                        "context_outputs": ["routing.guard"],
+                        "context_outputs": ["$ctx.routing.guard"],
+                    },
+                    "context": {
+                        "inputs": {
+                            "callable": "examples.ops.guard_threshold",
+                        },
                     },
                 },
                 "continue": {
-                    "type": "illumo.nodes.FunctionNode",
-                    "callable": "examples.ops.continue_flow",
+                    "type": "illumo_flow.core.FunctionNode",
                     "describe": {
                         "summary": "Downstream work reached only if guard allows",
-                        "context_outputs": ["outputs.final"],
+                        "context_outputs": ["$ctx.data.final"],
+                    },
+                    "context": {
+                        "inputs": {
+                            "callable": "examples.ops.continue_flow",
+                        },
+                        "outputs": "$ctx.data.final",
                     },
                 },
             },

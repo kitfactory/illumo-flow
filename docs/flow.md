@@ -24,18 +24,19 @@
 - Terminate early on failure, recording diagnostics for post-mortem inspection.
 
 ### Node
-- Implement `run(user_input: str | None = None, context: dict) -> dict` synchronously; optional `run_async` may delegate to `run`.
+- Implement `handle(payload, ctx_view) -> payload` (Flow invokes this via `Node.run`). The `payload` argument is the value resolved from `inputs`, while `ctx_view` is a constrained API for reading context paths or emitting routing decisions.
+- Optional `run_async` delegates to `run`, keeping synchronous semantics by default.
 - Publish metadata via `describe()` to support tooling and validation, enumerating expected context inputs/outputs so Flow can prime namespaces.
 - Respect single-responsibility: one node should own one unit of work or decision boundary.
-- Either set a static successor (`self.next_route`) during initialization or optionally attach a `Routing` entry to the returned context at runtime.
-- Use `inputs` / `outputs` (or DSL `context.inputs` / `context.outputs`) to read and write payloads from specific context locations.
-- Flow primes the context with required namespaces so nodes can read/write using standard dictionary semantics.
+- Either set a static successor (`self.next_route`) or call `ctx_view.route(...)` when runtime routing decisions are required.
+- Declare `inputs` / `outputs` (or DSL `context.inputs` / `context.outputs`) so Flow knows which context locations to read and write. Nodes only return the payload; Flow commits it to the designated paths.
+- Flow primes the context with required namespaces so nodes can reference them via expressions (`$ctx.*`, `$joins.*`, etc.).
 - Flow assigns graph-level node identifiers when registering the graph (typically from DSL/config keys); node instances remain identifier-agnostic so the same instance can be reused across flows.
-- If no explicit `name` is provided, Flow falls back to the node ID for clarity in logs and diagnostics.
+- Every node must provide a `name`; Flow validates non-empty strings and uses them in diagnostics while keeping runtime node IDs separate for graph wiring.
 - Implementations may generate private instance-scope UUIDs for metrics, but these must stay internal and never leak into routing or context keys.
 - Nodes automatically wait for all upstream dependencies defined by edges; no additional declarations are required for fan-in.
 - When participating in joins, return structured payloads that downstream consumers can merge without collision.
-- Avoid mutating context namespaces not owned by the node beyond the reserved keys prepared by Flow.
+- Avoid mutating context namespaces directly; use `ctx_view.write()` when additional values must be exposed outside the configured outputs.
 
 ### Context
 - Expose stable namespaces:
@@ -48,7 +49,18 @@
 - Reserved location for routing decisions: `context["routing"][node_id] = Routing` using plain dictionary assignment.
 - `context["payloads"]`: last payload emitted by each node; Flow seeds entry payloads and nodes should update their slot when producing outputs.
 - Nodes may store additional outputs via configured paths (`context.output`), and reference inputs via `context.input` without manually navigating nested dictionaries.
+- The transient payload passed to `Node.handle` is distinct from the shared context. Flow recomputes it from `inputs` for every node and commits the return value into `context["payloads"]` and the declared `outputs`.
 - Flow may read `describe()` metadata (for example, declared `context_inputs` / `context_outputs`) to pre-create or validate additional keys while keeping the public API minimal.
+
+### Expressions (`$ctx`, `$env`, …)
+- Strings that begin with `$` are treated as expressions. Supported scopes: `$ctx`, `$payload`, `$joins`, `$env`.
+- Expressions inside `{{ … }}` are evaluated within strings, allowing templates such as `"Hello {{ $ctx.user.name }}"`.
+- As a convenience, inputs/outputs declared as `ctx.*`, `payload.*`, or `joins.*` (without the leading `$`) are automatically normalized to the corresponding `$ctx.*` / `$payload.*` / `$joins.*` form. Similarly, the shorthand `$.path` is interpreted as `$ctx.path`. Other strings remain literals.
+- Examples:
+  - `$ctx.data.raw` (or `ctx.data.raw`) → `context["data"]["raw"]`
+  - `$payload.extract` → `context["payloads"]["extract"]`
+  - `$env.API_TOKEN` → environment variable lookup
+- Pure literals that do not begin with the supported prefixes are never coerced.
 
 ## Routing Design
 ### Static Routing
@@ -80,21 +92,27 @@ flow:
   nodes:
     extract:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.extract
+      name: extract
       context:
-        output: data.raw
+        inputs:
+          callable: examples.ops.extract
+        output: $ctx.data.raw
     transform:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.transform
+      name: transform
       context:
-        input: data.raw
-        output: data.normalized
+        inputs:
+          callable: examples.ops.transform
+          payload: $ctx.data.raw
+        output: $ctx.data.normalized
     load:
       type: illumo_flow.core.FunctionNode
-      callable: examples.ops.load
+      name: load
       context:
-        input: data.normalized
-        output: data.persisted
+        inputs:
+          callable: examples.ops.load
+          payload: $ctx.data.normalized
+        output: $ctx.data.persisted
   edges:
     - extract >> transform
     - transform >> load
@@ -109,6 +127,10 @@ flow = Flow.from_config("flow.yaml")
 context = {}
 flow.run(context)
 ```
+
+`Flow.run` returns the mutated `context`; per-node outputs also remain under `context["payloads"]` for inspection.
+
+`FunctionNode` instances expect the implementation path under `context.inputs.callable`. Literal strings are imported when the flow is built, while expressions (for example `$.registry.transform`) are evaluated against the runtime context.
 
 ### Fan-Out and Broadcast
 - For `A | B` when both edges must fire, Flow duplicates the outbound payload per target, tagging each with the parent node id.
@@ -129,8 +151,8 @@ flow.run(context)
 2. Initialization of execution state (`context` defaults, ready queue seeded with entry node).
 3. Dispatch loop:
    - Pop next node respecting concurrency limits.
-   - Execute node (sync or async) with current context snapshot.
-   - Handle success: log step, merge context delta, read any `Routing` entry from context, enqueue successors, clear the consumed entry.
+   - Resolve the node payload from declared `inputs` and invoke `Node.handle(payload, ctx_view)`.
+   - Handle success: log step, persist the returned payload via `outputs`, read any `ctx_view.route(...)` instruction, enqueue successors, clear the consumed routing entry.
    - Handle failure: capture diagnostics, mark context failure keys, abort loop.
 4. Finalization: expose the last payload emitted (return value of `Flow.run`) while leaving the enriched context mutated in-place.
 
