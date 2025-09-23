@@ -45,11 +45,12 @@
   - `context["joins"]`: `join_id -> parent_id -> payload` を格納する多重マップ。
   - `context["errors"]`: ノード例外発生時のエラーレコード。
 - 上記以外は利用者が任意のキーを追加できるが、予約キーは保護されるべき。
-- Flow は実行前に `context["joins"]` や `context["routing"]` などの予約ネームスペースを初期化し、ノードは追加のヘルパに頼らず辞書操作で更新できる。
+- Flow は実行前に `context["joins"]` や `context["routing"]` などの予約ネームスペースを初期化し、ノードが直接辞書を操作するのではなく `ctx_view` 経由でアクセスできるようにする。
 - ルーティング決定の保存先は `context["routing"][node_id] = Routing` とし、標準的な辞書代入で記録する。
 - `describe()` で宣言された `context_inputs` / `context_outputs` などを参照し、Flow が追加キーを事前確保・検証できる。
 - `context["payloads"]`: 各ノードが最後に生成したペイロード。エントリノードは Flow が初期化し、ノード実装は自分のスロットを更新する。
 - `context.output` に指定したパスへノードの出力を格納したり、`context.input` で指定したパスから入力を取得したりできる。
+- 共有状態の更新は `ctx_view.write(...)` を通じて行い、Raw な辞書操作はサポート対象外とする。n8n / Dify と同様、コンテキストアクセスは Flow が提供する安全な API に限定する。
 - `$` で始まる文字列は式として評価されます（例: `$ctx.data.raw`, `$env.API_KEY`）。
 - 文字列内の `{{ ... }}` も式を受け付け、テンプレートとして展開されます。
 - ノードに渡される `payload` は `inputs` から解決された値であり、共有 `context` とは分離しています。ノードは戻り値として `payload` を返し、Flow が `context["payloads"]` と `outputs` へ書き込みます。

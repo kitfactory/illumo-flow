@@ -31,6 +31,7 @@
 - Either set a static successor (`self.next_route`) or call `ctx_view.route(...)` when runtime routing decisions are required.
 - Declare `inputs` / `outputs` (or DSL `context.inputs` / `context.outputs`) so Flow knows which context locations to read and write. Nodes only return the payload; Flow commits it to the designated paths.
 - Flow primes the context with required namespaces so nodes can reference them via expressions (`$ctx.*`, `$joins.*`, etc.).
+- Nodes must not mutate the underlying context dictionary directly; rely on `ctx_view` helpers (`ctx.get`, `ctx.write`, `ctx.route`) so that Flow remains the single authority for shared state.
 - Flow assigns graph-level node identifiers when registering the graph (typically from DSL/config keys); node instances remain identifier-agnostic so the same instance can be reused across flows.
 - Every node must provide a `name`; Flow validates non-empty strings and uses them in diagnostics while keeping runtime node IDs separate for graph wiring.
 - Implementations may generate private instance-scope UUIDs for metrics, but these must stay internal and never leak into routing or context keys.
@@ -49,6 +50,7 @@
 - Reserved location for routing decisions: `context["routing"][node_id] = Routing` using plain dictionary assignment.
 - `context["payloads"]`: last payload emitted by each node; Flow seeds entry payloads and nodes should update their slot when producing outputs.
 - Nodes may store additional outputs via configured paths (`context.output`), and reference inputs via `context.input` without manually navigating nested dictionaries.
+- Shared state updates should be funneled through Flow (`ctx_view.write(...)`) rather than raw dictionary mutation to mirror platforms like n8n / Dify that strictly mediate context access.
 - The transient payload passed to `Node.handle` is distinct from the shared context. Flow recomputes it from `inputs` for every node and commits the return value into `context["payloads"]` and the declared `outputs`.
 - Flow may read `describe()` metadata (for example, declared `context_inputs` / `context_outputs`) to pre-create or validate additional keys while keeping the public API minimal.
 
