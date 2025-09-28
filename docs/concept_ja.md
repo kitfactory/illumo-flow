@@ -11,12 +11,18 @@
 - ノードは結果を返すほか、失敗時には即座に処理を打ち切って終了
 
 ## Node のライフサイクル
-- 抽象 `Node` は実行とコンテキスト処理に必要な最小限の契約を定義
-- 同期 API は `run(user_input: str, context: dict) -> dict` で、更新済みコンテキストを下流ノードへ引き渡す
-- `run_async` は `run` を委譲する非同期版で、イベントループ上のワークフローを支援
-- 具象ノードはサブクラス検出で起動時に登録され、環境に応じた拡張が可能
-- ノードは単一責務と合成しやすさを保ち、肥大化を避ける
-- 各ノードは `describe() -> dict` を実装し、モジュール名・説明・引数メタデータ・返り値ヒントを返してツールやローダーが参照できるようにする
+- 抽象 `Node` はバインドやメタデータ公開、実行委譲に必要な最小限の契約を定義する。
+- 具象ノードは `run(payload) -> Any` を実装し、Flow が呼び出しをラップしてコンテキストへの書き込みを仲介する。`allow_context_access=True` を指定したノードのみ、`self.request_context()` で実行中の共有コンテキストへアクセスできる。
+- `RoutingNode`（および `CustomRoutingNode` など）は `run(payload) -> Routing | Sequence[Routing] | Sequence[Tuple[Routing, Any]]` を返し、分岐先・確信度・理由といったメタ情報を構造化して提供する。
+- `run_async` は既定で `run` を呼び出すだけの実装とし、同期セマンティクスを保つ。
+- サブクラス検出や明示的インスタンス化によって環境依存のノード拡張が可能。
+- ノードは単一責務と合成しやすさを保ち、肥大化を避ける。
+- 各ノードは `describe() -> dict` を実装し、モジュール名・概要・入出力メタデータなどを返してツールやローダーが参照できるようにする。
+
+-### Routing データモデル
+- `Routing` は単一の後続ノードに対する判断結果を保持し、`target`（行き先）と任意の `confidence` / `reason` を持ちます。ペイロード上書きが必要な場合は `(Routing(...), payload)` のタプルで返却します。
+- ルーティングノードは `Routing` を 1 件返すか、ファンアウトが必要であれば `Routing` / `(Routing, payload)` を含むシーケンスを返します。空のシーケンスを返すことで安全に停止できます。
+- Flow は `{target, payload, confidence, reason}` の配列として `context["routing"][node_id]` に判断結果を保存し、監査や後続分析で参照できるようにします。
 
 ## エラーポリシー
 - Fail-fast 方針: 原因が分かる情報を添えて即座に例外を送出
@@ -25,19 +31,34 @@
 
 ## DSL クイックスタート
 ```python
-from illumo import Flow, FunctionNode
+from illumo_flow import Flow, FunctionNode
 
-start = FunctionNode(lambda payload, ctx: payload, name="start", outputs="$ctx.data.start")
-A     = FunctionNode(lambda payload, ctx: f"A:{payload}", name="A", inputs="$ctx.data.start", outputs="$ctx.data.A")
-B     = FunctionNode(lambda payload, ctx: f"B:{payload}", name="B", inputs="$ctx.data.start", outputs="$ctx.data.B")
-join  = FunctionNode(lambda payload, ctx: f"JOIN:{payload['A']},{payload['B']}", name="join", inputs="$joins.join", outputs="$ctx.data.join")
+start = FunctionNode(lambda payload: payload, name="start", outputs="$ctx.data.start")
+A = FunctionNode(
+    lambda payload: f"A:{payload}",
+    name="A",
+    inputs="$ctx.data.start",
+    outputs="$ctx.data.A",
+)
+B = FunctionNode(
+    lambda payload: f"B:{payload}",
+    name="B",
+    inputs="$ctx.data.start",
+    outputs="$ctx.data.B",
+)
+join = FunctionNode(
+    lambda payload: f"JOIN:{payload['A']},{payload['B']}",
+    name="join",
+    inputs="$joins.join",
+    outputs="$ctx.data.join",
+)
 
 flow = Flow.from_dsl(
     nodes={"start": start, "A": A, "B": B, "join": join},
-    entry=start,
+    entry="start",
     edges=[
-        start >> (A | B),     # fan-out
-        (A & B) >> join,      # fan-in
+        "start >> (A | B)",  # fan-out
+        "(A & B) >> join",   # fan-in
     ],
 )
 
@@ -93,16 +114,16 @@ flow:
     - start >> (A | B)
     - (A & B) >> join
 ```
-- ローダーは `context.inputs.callable` に記載された `start_func` のようなシンボル名を import 文字列やレジストリを通じて実際の Python オブジェクトへ解決する
+- ローダーは `context.inputs.callable`（ルーティングノードの場合は `context.inputs.routing_rule`）に記載された `start_func` のようなシンボル名を import 文字列やレジストリを通じて実際の Python オブジェクトへ解決する
 - パースされた設定は `Flow` が期待する内部辞書形式に正規化され、コード定義フローとの共存が可能
 - ノード定義には `summary` や `inputs`、`returns` といったメタデータを含め、`node.describe()` に反映してドキュメント生成や検証に活用できる
 - カスタムローダーを用いれば、許可モジュールやサンドボックス方針など環境制約を実行前に検証できる
-- 追加で `context.input` / `context.output` を指定すると、共有コンテキストのどこから読み書きするかを制御できる
+- `context.inputs` / `context.outputs` を通じて、共有コンテキスト上のどこから読み書きするかを制御できる
 
 ## 実行時のふるまい
 - 並列実行: 依存が揃ったノードは遅延なく起動
-- ルーター分岐: `|` はルーター決定に従い、`&` は強制的に全ノードへ送信
-- 暗黙の JOIN: 複数の親エッジを持つノードは `{"A": ..., "B": ...}` のように親ノードの出力を辞書で受け取る
+- ルーター分岐: `|` は `RoutingNode` が返す決定（`context["routing"]`）に従い、`&` は強制的に全ノードへ送信
+- 暗黙の JOIN: 複数の親エッジを持つノードは `{ "A": ..., "B": ... }` のように親ノードの出力を辞書で受け取る
 - エラー処理: フェイルファスト。`Flow.run` は最初の失敗で例外を送出し、診断情報を `ctx` に保存
 
 ```python
@@ -118,10 +139,10 @@ print(ctx["errors"])
 ```
 
 ### ルーティング実装ガイドライン
-1. DSL 配線で次ノードが一意に決まる場合（例: `A >> B`）は `self.next_routing = "B"` を設定
-2. 実行時に分岐が決まる場合は `next_routing` を設定せず、`context["routing"]`（または設定したキー）へ `RoutingInfo` を書き込む
-3. 複数の親を持つ合流ノードは、結合結果を `context["joins"]["join_id"]` のような名前空間に保存し後続ノードが参照できるようにする
-4. `next_routing` もルーティング情報も無い場合は `Flow` がルーティングエラーを送出（あるいは `default_route` へ退避）し、未定義の遷移を検知する
+1. DSL 配線で次ノードが一意に決まる場合（例: `A >> B`）は、その配線だけで静的ルートを表現する。
+2. 実行時に分岐が必要な場合は `RoutingNode` を実装し、`Routing(target=..., confidence=..., reason=...)` か `(Routing(...), payload)` を 1 件または複数件返す。
+3. 複数の親を持つ合流ノードには、タプルで渡したペイロードを利用しつつ `context["joins"][join_id]` の辞書を活用する。
+4. 後続を停止したい場合は空のリスト（`[]`）を返す。DSL に存在しない `target` を返すと `FlowError` が送出される。
 
 ## バックステージ機能
 - Pydantic などによる型バリデーション

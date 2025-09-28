@@ -11,12 +11,18 @@
 - Nodes can emit results or short-circuit execution; the flow exits immediately on failure
 
 ## Node Lifecycle
-- Abstract `Node` defines the minimal contract for execution and context handling
-- Core synchronous API: `run(user_input: str, context: dict) -> dict` returns the updated context used by downstream nodes
-- `run_async` is the asynchronous counterpart that delegates to `run` for event-loop driven flows
-- Concrete nodes register at startup by subclass discovery, allowing environment-specific extensions
-- Nodes should remain single-responsibility and composable to avoid monolithic logic
-- Every node exposes self-description via `describe() -> dict` (module name, summary, argument metadata, return payload hints) so tooling and loaders can present module catalogs
+- Abstract `Node` defines the minimal contract for binding, metadata exposure, and execution delegation.
+- Subclasses implement `run(payload) -> Any`; Flow wraps the call so it can record payloads, write configured outputs, and manage shared context access. Nodes that opt in via `allow_context_access=True` can call `self.request_context()` when special handling is unavoidable.
+- `RoutingNode` (and helpers such as `CustomRoutingNode`) implement `run(payload) -> Routing | Sequence[Routing] | Sequence[Tuple[Routing, Any]]`, returning structured branch decisions instead of plain payloads.
+- `run_async` reuses the synchronous semantics by delegating to `run`, keeping the default implementation simple.
+- Concrete nodes may be registered via subclass discovery or explicit instantiation, enabling environment-specific extensions.
+- Nodes should remain single-responsibility and composable to avoid monolithic logic.
+- Each node exposes self-description via `describe() -> dict` (module, class, summary, context inputs/outputs) so tooling and loaders can present module catalogs.
+
+-### Routing Data Model
+- `Routing` captures the outcome of a routing decision for a single successor: it records the downstream `target` and optional `confidence` / `reason` annotations.
+- A routing node may return one `Routing` instance, `(Routing, payload)` tuples, or a sequence of those when fan-out is required. Returning an empty sequence stops dispatch gracefully.
+- Flow stores the serialized decision (list of `{target, payload, confidence, reason}`) in `context["routing"][node_id]`, enabling later inspection by operators or downstream agents.
 
 ## Error Policy
 - Fail-fast philosophy: raise immediately with actionable context
@@ -25,19 +31,34 @@
 
 ## DSL Quickstart
 ```python
-from illumo import Flow, FunctionNode
+from illumo_flow import Flow, FunctionNode
 
-start = FunctionNode(lambda payload, ctx: payload, name="start", outputs="$ctx.data.start")
-A     = FunctionNode(lambda payload, ctx: f"A:{payload}", name="A", inputs="$ctx.data.start", outputs="$ctx.data.A")
-B     = FunctionNode(lambda payload, ctx: f"B:{payload}", name="B", inputs="$ctx.data.start", outputs="$ctx.data.B")
-join  = FunctionNode(lambda payload, ctx: f"JOIN:{payload['A']},{payload['B']}", name="join", inputs="$joins.join", outputs="$ctx.data.join")
+start = FunctionNode(lambda payload: payload, name="start", outputs="$ctx.data.start")
+A = FunctionNode(
+    lambda payload: f"A:{payload}",
+    name="A",
+    inputs="$ctx.data.start",
+    outputs="$ctx.data.A",
+)
+B = FunctionNode(
+    lambda payload: f"B:{payload}",
+    name="B",
+    inputs="$ctx.data.start",
+    outputs="$ctx.data.B",
+)
+join = FunctionNode(
+    lambda payload: f"JOIN:{payload['A']},{payload['B']}",
+    name="join",
+    inputs="$joins.join",
+    outputs="$ctx.data.join",
+)
 
 flow = Flow.from_dsl(
     nodes={"start": start, "A": A, "B": B, "join": join},
-    entry=start,
+    entry="start",
     edges=[
-        start >> (A | B),     # fan-out
-        (A & B) >> join,      # fan-in
+        "start >> (A | B)",  # fan-out
+        "(A & B) >> join",   # fan-in
     ],
 )
 
@@ -93,16 +114,16 @@ flow:
     - start >> (A | B)
     - (A & B) >> join
 ```
-- Loaders resolve symbolic callables (for example `start_func`) via `context.inputs.callable`, importing literals and evaluating expressions when required
+- Loaders resolve symbolic callables (for example `start_func`) via `context.inputs.callable` (or `context.inputs.routing_rule` for routing nodes), importing literals and evaluating expressions when required
 - Parsed configs normalize into the internal dictionary that `Flow` expects, keeping code-defined and config-defined flows interoperable
 - Node entries may carry metadata (`summary`, `inputs`, `returns`) that populate `node.describe()` for documentation and validation
 - Custom loaders can enforce environment restrictions (allowed modules, sandbox policies) before instantiating nodes
-- Optional `context.input` / `context.output` keys control where data is read from and written to within the shared context dictionary
+- `context.inputs` / `context.outputs` entries define where data is read from and written to within the shared context dictionary
 
 ## Runtime Behavior
 - Parallel execution: every node with satisfied dependencies starts without delay
-- Router branches: `|` consumes router decisions, `&` always dispatches to all participants
-- Implicit join: nodes with multiple incoming edges receive a dictionary of parent outputs (e.g. `{"A": ..., "B": ...}`)
+- Router branches: `|` respects `RoutingNode` decisions (recorded under `context["routing"]`), while `&` always dispatches to all participants
+- Implicit join: nodes with multiple incoming edges receive a dictionary of parent outputs (e.g. `{ "A": ..., "B": ... }`)
 - Error handling: fail-fast—`Flow.run` raises on the first failure and records diagnostics in `ctx`
 
 ```python
@@ -117,11 +138,11 @@ print(ctx["failed_message"])
 print(ctx["errors"])
 ```
 
-### Routing Guidelines
-1. Set `self.next_routing = "B"` when the DSL wiring uniquely determines the successor (e.g., `A >> B`).
-2. Omit `next_routing` if runtime logic decides the next hop; write a `RoutingInfo` instance to `context["routing"]` (or a configured key) instead.
-3. Nodes with multiple parents should store their combined payload in a predictable namespace such as `context["joins"]["join_id"]`.
-4. When neither `next_routing` nor context routing exists, `Flow` raises a routing error (or falls back to `default_route`) so undefined transitions stay detectable.
+### Branching Guidelines
+1. Express static transitions directly in the DSL (`A >> B`).
+2. For runtime decisions, implement a `RoutingNode` and return a single `Routing(target=..., confidence=..., reason=...)`, an optional `(Routing(...), payload)` tuple, or a list of those to fan out.
+3. Join targets continue to receive dictionaries via `context["joins"][target_id]`; provide per-route payloads through the tuple return when必要.
+4. Return an empty list (`[]`) to stop dispatch explicitly. Supplying a `Routing` whose `target` does not exist in the DSL raises `FlowError`.
 
 ## Backstage Capabilities
 - Pydantic-driven validation for inputs and node contracts

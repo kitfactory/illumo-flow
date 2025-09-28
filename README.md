@@ -11,14 +11,14 @@ pip install illumo-flow
 ```python
 from illumo_flow import Flow, FunctionNode
 
-# Define lightweight callables (each works on a shared context dict)
+# Define lightweight callables (payload-first; shared context access is opt-in)
 def extract(payload):
     return {"customer_id": 42, "source": "demo"}
 
-def transform(payload, ctx):
+def transform(payload):
     return {**payload, "normalized": True}
 
-def load(payload, ctx):
+def load(payload):
     return f"stored:{payload['customer_id']}"
 
 nodes = {
@@ -47,7 +47,7 @@ context = {}
 flow.run(context)
 print(context["data"]["persisted"])  # stored:42
 
-# Flow.run now returns the mutated context; per-node outputs also remain
+# Flow.run returns the mutated context; per-node outputs remain
 # available under `context["payloads"]`.
 ```
 
@@ -116,23 +116,32 @@ print(context["data"]["persisted"])
 ### Payload vs Context
 - Flow resolves each node's `payload` from the declared `inputs`.
 - Nodes return the next `payload`; Flow stores it under `context["payloads"][node_id]` and writes to the paths declared in `outputs`.
-- Within a node, use the context view helpers (`ctx.get(...)`, `ctx.write(...)`, `ctx.route(...)`) when shared state needs to be read or updated. Direct mutation of the underlying dictionary is discouraged.
+- Treat the payload as the primary contract. Only nodes created with `allow_context_access=True` can reach the shared dictionary (e.g., for metrics via `context.setdefault("metrics", {})`); everyone else operates purely on payloads.
+
+### Branching
+- To route dynamically, return a dictionary mapping successor identifiers to payloads (e.g. `{"approve": payload}`). Only the listed successors are executed.
+- Returning an empty dictionary `{}` stops downstream execution; returning multiple keys broadcasts to all corresponding successors.
 
 ## Testing (repository clone)
-```bash
-pytest
-```
-The suite in `tests/test_flow_examples.py` validates the sample DSL flows using the `src` layout configured in `pyproject.toml`.
+Keep runs short and deterministic by executing one test at a time.
+
+- Update or extend scenarios inside `tests/test_flow_examples.py` (edit-only policy for this repo).
+- Execute `pytest tests/test_flow_examples.py::TEST_NAME`; set `FLOW_DEBUG_MAX_STEPS=200` when exercising looping flows to guard against hangs.
+- Track progress in `docs/test_checklist.md` and reset all checkboxes before regression sweeps.
+
+Refer to `docs/test_checklist.md` for the live checklist.
 
 ## Documentation
 - Architecture and API design: [docs/flow.md](docs/flow.md)
 - Japanese version: [docs/flow_ja.md](docs/flow_ja.md)
 - Concepts overview: [docs/concept.md](docs/concept.md)
-- Step-by-step tutorial: [docs/tutorial.md](docs/tutorial.md) / [docs/tutorial_ja.md](docs/tutorial_ja.md)
+- Quick tutorial reference: [docs/tutorial.md](docs/tutorial.md) / [docs/tutorial_ja.md](docs/tutorial_ja.md)
+- Chaptered tutorial (design foundations + samples): [docs/tutorials/README.md](docs/tutorials/README.md) / [docs/tutorials/README_ja.md](docs/tutorials/README_ja.md)
 
 ## Highlights
 - DSL edges such as `A >> B`, `(A & B) >> C`
-- Payload-first callable interface with a constrained context view helper
-- Routing metadata via `Routing(next, confidence, reason)`
+- Payload-first callable interface（`allow_context_access=True` を指定したノードのみ共有コンテキストへ明示アクセス）
+- LoopNode for per-item iteration (self edge `loop >> loop` + body route `loop >> worker`)
+- Branching via returned mappings (e.g. `{successor: payload}`)
 - Built-in join handling (nodes with multiple parents automatically wait for all inputs)
 - Examples covering ETL, dynamic routing, fan-out/fan-in, timeout handling, and early stop

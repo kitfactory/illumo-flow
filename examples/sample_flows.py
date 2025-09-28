@@ -72,23 +72,23 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
         "id": "confidence_router",
         "description": "Router node selects downstream path using confidence scores.",
         "important_points": [
-            "Node-managed routing metadata with `Routing.next` and `Routing.confidence`",
-            "Audit trail stored under `$ctx.routing.classify`",
-            "Fallback target via `default_route` when confidence is low",
+            "Node-managed branching via Routing (target + confidence/reason)",
+            "Audit trail stored under `$ctx.metrics.score`",
+            "Fallback branch handled inside the node's decision logic",
         ],
         "dsl": {
             "entry": "classify",
             "nodes": {
                 "classify": {
-                    "type": "illumo_flow.core.FunctionNode",
+                    "type": "illumo_flow.core.CustomRoutingNode",
                     "describe": {
                         "summary": "Choose approve/reject path",
-                        "context_outputs": ["$ctx.routing.classify"],
+                        "context_outputs": ["$ctx.metrics.score"],
                     },
-                    "default_route": "manual_review",
+                    "allow_context_access": True,
                     "context": {
                         "inputs": {
-                            "callable": "examples.ops.classify",
+                            "routing_rule": "examples.ops.classify",
                         },
                     },
                 },
@@ -263,7 +263,7 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
         "id": "early_stop_watchdog",
         "description": "Flow terminates gracefully when guard requests stop routing.",
         "important_points": [
-            "Guard node writes `Routing.next = None` with a reason",
+            "Guard node returns `Routing(branches={})` to stop execution",
             "Execution trace captures termination cause",
             "No downstream tasks remain pending after stop",
         ],
@@ -271,14 +271,14 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
             "entry": "guard",
             "nodes": {
                 "guard": {
-                    "type": "illumo_flow.core.FunctionNode",
+                    "type": "illumo_flow.core.CustomRoutingNode",
                     "describe": {
                         "summary": "Check thresholds before proceeding",
                         "context_outputs": ["$ctx.routing.guard"],
                     },
                     "context": {
                         "inputs": {
-                            "callable": "examples.ops.guard_threshold",
+                            "routing_rule": "examples.ops.guard_threshold",
                         },
                     },
                 },

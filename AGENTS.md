@@ -55,15 +55,17 @@ uv pip install -e .
 - テストは実装と同時に作成し常にグリーンを維持（TDD 推奨）
 
 ## 5. 機能追加の運用ポリシー
-- 原則として新規ファイルは作らず、既存ファイルへの追記・差し替えで対応
-- 真に必要な場合のみ 1 ファイル以内で追加し、命名は既存規約に完全準拠
+- 原則として指示や確認ができない場合には新規ファイルは作らず、既存ファイルへの追記・差し替えで対応
+- 作成したい場合は確認を取る
 - 追加可能なのは明示された機能（例: 特定 SDK のアダプタ）のみで、抽象や DTO の先出し量産は禁止
 - `.env` キーの追加は禁止。既存キーで表現できない場合は「設計レビュー保留」と記録
 - 公開 API の増加は抑制し、必要な場合は既存公開窓口に限定的に追加
 
 ## 6. 実行 & テスト戦略（120 秒対策 / 現物優先）
 - **小分け実行**: テストはファイル・マーカー・パターンで狙い撃ち
-  - 例: `uv run pytest -q -k "unit and agent" --timeout=15`
+  - 例: `./.venv/bin/pytest tests/test_flow_examples.py -k loop -vv`
+- **チェックリスト運用**: `docs/test_checklist.md` / `docs/test_checklist_ja.md` を更新しつつ、テストは必ず `pytest tests/test_flow_examples.py::TEST_NAME` の形で 1 件ずつ実行し、パスしたらチェックを入れる/Test execution must proceed one case at a time using the checklist files and mark each item only after it passes
+- **ビルド回避**: `uv run` は毎回 wheel ビルドを試みるため時間が掛かる。テストや lint は基本的に仮想環境の `pytest` / `python` を直接呼び出す。
 - **現物優先 / スタブ最小**: 外部 I/O は最小権限・最小データで実 API を基本とし、フェイクは最後の手段
 - **分割基準**: テストファイル単位で 10〜30 秒以内に完結する粒度に分割
 - **タイムアウト標準化**: `pytest-timeout` を導入し、デフォルト 15 秒を `conftest.py` 等で適用

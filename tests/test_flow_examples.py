@@ -13,7 +13,7 @@ for candidate in (SRC, ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from illumo_flow import Flow, FunctionNode
+from illumo_flow import Flow, FlowError, FunctionNode, LoopNode, Routing, CustomRoutingNode
 from examples import ops
 from examples.sample_flows import EXAMPLE_FLOWS
 
@@ -33,18 +33,30 @@ def test_examples_run_without_error(example):
     assert final_context is context
     if example["id"] == "linear_etl":
         assert context["data"]["persisted"] == "persisted"
+    if example["id"] == "confidence_router":
+        routing_entry = context["routing"].get("classify")
+        assert routing_entry is not None
+        assert isinstance(routing_entry, list)
+        assert routing_entry
+        first_route = routing_entry[0]
+        assert "confidence" in first_route
+        assert "target" in first_route
+    if example["id"] == "early_stop_watchdog":
+        guard_record = context["routing"].get("guard")
+        assert guard_record is not None
+        assert guard_record == []
 
 
 def test_join_node_receives_parent_dictionary():
     def make_value(label):
-        return lambda payload, ctx: {"label": label}
+        return lambda payload: {"label": label}
 
     nodes = {
-        "start": FunctionNode(lambda payload, ctx: payload, name="start"),
+        "start": FunctionNode(lambda payload: payload, name="start"),
         "A": FunctionNode(make_value("A"), name="A"),
         "B": FunctionNode(make_value("B"), name="B"),
         "join": FunctionNode(
-            lambda payload, ctx: payload["A"]["label"] + payload["B"]["label"],
+            lambda payload: payload["A"]["label"] + payload["B"]["label"],
             name="join",
         ),
     }
@@ -94,7 +106,7 @@ def test_context_paths_are_honored():
 
 
 def test_multiple_outputs_configuration():
-    def producer(payload, ctx):
+    def producer(payload):
         return {"a": 1, "b": 2}
 
     nodes = {
@@ -171,7 +183,7 @@ def test_expression_inputs_and_env(monkeypatch):
 
     nodes = {
         "greet": FunctionNode(
-            lambda payload, ctx: f"{payload['greeting']}:{payload['city']}",
+            lambda payload: f"{payload['greeting']}:{payload['city']}",
             name="greet",
             inputs={
                 "greeting": "おはようございます {{ $.user.name }}",
@@ -202,3 +214,49 @@ def test_callable_resolved_from_context_expression():
 
     assert ctx["data"]["value"]["customer_id"] == 42
     assert ctx["data"]["value"]["source"] == "demo"
+
+
+def test_function_node_returning_routing_is_rejected():
+    def bad_router(payload):
+        return Routing(target="next")
+
+    nodes = {
+        "start": FunctionNode(bad_router, name="start"),
+        "next": FunctionNode(lambda payload: payload, name="next"),
+    }
+
+    flow = Flow.from_dsl(nodes=nodes, entry="start", edges=["start >> next"])
+    with pytest.raises(FlowError):
+        flow.run({})
+
+
+def test_loop_node_iterates_over_sequence():
+    def collect(payload, context):
+        bucket = context.setdefault("results", [])
+        bucket.append(payload)
+        return payload
+
+    nodes = {
+        "loop": LoopNode(name="loop", body_route="worker", enumerate_items=True),
+        "worker": FunctionNode(
+            collect,
+            name="worker",
+            allow_context_access=True,
+        ),
+    }
+
+    flow = Flow.from_dsl(
+        nodes=nodes,
+        entry="loop",
+        edges=["loop >> worker", "loop >> loop"],
+    )
+
+    ctx = {}
+    flow.run(ctx, user_input=["a", "b", "c"])
+
+    assert ctx["results"] == [
+        {"item": "a", "index": 0},
+        {"item": "b", "index": 1},
+        {"item": "c", "index": 2},
+    ]
+    assert ctx["payloads"]["worker"] == {"item": "c", "index": 2}

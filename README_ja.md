@@ -11,15 +11,15 @@ pip install illumo-flow
 ```python
 from illumo_flow import Flow, FunctionNode
 
-# コンテキスト辞書を扱うノード関数を定義
+# まずはペイロードだけを扱う関数を定義（共有コンテキストは必要時のみアクセス）
 
 def extract(payload):
     return {"customer_id": 42, "source": "demo"}
 
-def transform(payload, ctx):
+def transform(payload):
     return {**payload, "normalized": True}
 
-def load(payload, ctx):
+def load(payload):
     return f"stored:{payload['customer_id']}"
 
 nodes = {
@@ -109,7 +109,11 @@ print(context["data"]["persisted"])
 ### ペイロードとコンテキストの違い
 - `inputs` に従って Flow が各ノードの `payload` を算出します。
 - ノードは次の `payload` を返却し、Flow が `context["payloads"][node_id]` および `outputs` へ書き込みます。
-- 共有状態を読み書きする際は、ノードに渡されるコンテキストビュー（`ctx.get(...)`, `ctx.write(...)`, `ctx.route(...)`）を使用し、辞書を直接更新しないようにします。
+- 基本方針はペイロード重視です。共有コンテキストへアクセスできるのは `allow_context_access=True` を有効にしたノードだけで、その場合でも `context.setdefault("metrics", {})` など予約・明示的な領域に限定して更新します。
+
+### ブランチング
+- 動的に分岐させたい場合は、`{"successor_id": payload}` 形式の辞書を戻り値として返します。そのキーに対応する後続ノードだけが実行されます。
+- 空の辞書 `{}` を返すと後続が停止し、複数キーを返すと複数の後続へペイロードをブロードキャストできます。
 
 
 ### 式の書き方
@@ -120,21 +124,26 @@ print(context["data"]["persisted"])
 - テンプレート構文 `"こんにちは {{ $ctx.user.name }}"` は `inputs` などで利用可能
 
 ## テスト（リポジトリ利用時）
-```bash
-pytest
-```
-`tests/test_flow_examples.py` がサンプル DSL を使ったスモークテストを提供します。
+テストは常に 1 件ずつ実行し、ハングを防ぎながら確実に確認します。
+
+- テストコードは `tests/test_flow_examples.py` に追記・更新します。
+- 各ケースは `pytest tests/test_flow_examples.py::TEST_NAME` で個別実行し、ループ検証時は `FLOW_DEBUG_MAX_STEPS=200` を設定してハングを防ぎます。
+- 進捗管理は `docs/test_checklist_ja.md` で行い、回帰前には全項目を未チェックへ戻します。
+
+最新のチェックリストは `docs/test_checklist_ja.md` を参照してください。
 
 ## ドキュメント
 - 英語版アーキテクチャ: [docs/flow.md](docs/flow.md)
 - 日本語版アーキテクチャ: [docs/flow_ja.md](docs/flow_ja.md)
 - コンセプト概説: [docs/concept.md](docs/concept.md) / [docs/concept_ja.md](docs/concept_ja.md)
-- チュートリアル: [docs/tutorial.md](docs/tutorial.md) / [docs/tutorial_ja.md](docs/tutorial_ja.md)
+- チュートリアル（クイックリファレンス）: [docs/tutorial.md](docs/tutorial.md) / [docs/tutorial_ja.md](docs/tutorial_ja.md)
+- 章立てチュートリアル（設計思想とサンプル）: [docs/tutorials/README.md](docs/tutorials/README.md) / [docs/tutorials/README_ja.md](docs/tutorials/README_ja.md)
 
 ## ハイライト
 - DSL エッジ (`A >> B`, `(A & B) >> C`)
-- `context.input` / `context.output` でコンテキスト上の任意パスに読み書き
-- ペイロード優先＋制約付きコンテキストビューによるコール可能インターフェース
-- `Routing(next, confidence, reason)` による動的ルーティング
+- `inputs` / `outputs` 宣言でコンテキスト上の読取・書込パスを明示
+- ペイロード優先（`allow_context_access=True` を指定したノードのみ共有コンテキストへ明示アクセス）
+- LoopNode での逐次ループ処理（例: `loop >> loop`, `loop >> worker` のように body ルートを指定）
+- `{successor: payload}` を戻り値とする動的ブランチング
 - 複数親ノードは自動的にジョイン処理
 - ETL / 分岐 / 並列ジョイン / タイムアウト / 早期停止サンプル
