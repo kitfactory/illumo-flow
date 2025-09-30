@@ -85,7 +85,6 @@ EXAMPLE_FLOWS: List[SampleFlow] = [
                         "summary": "Choose approve/reject path",
                         "context_outputs": ["$ctx.metrics.score"],
                     },
-                    "allow_context_access": True,
                     "context": {
                         "inputs": {
                             "routing_rule": "examples.ops.classify",

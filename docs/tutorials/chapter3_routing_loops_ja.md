@@ -29,7 +29,7 @@
 
 ## 3.4 ルーティング実装例
 ```python
-from illumo_flow import Flow, CustomRoutingNode, Routing, FunctionNode
+from illumo_flow import Flow, CustomRoutingNode, Routing, FunctionNode, NodeConfig
 
 def classify(payload):
     score = payload.get("score", 0.85)
@@ -47,10 +47,48 @@ def classify(payload):
         reason=reason,
     ), decision_payload
 
+
+
+def approve(payload):
+    return "approved"
+
+
+def review(payload):
+    return "pending"
+
+MODULE = __name__
+
+def routing_node(name, rule_path):
+    return CustomRoutingNode(
+        config=NodeConfig(
+            name=name,
+            setting={"routing_rule": {"type": "string", "value": rule_path}},
+        )
+    )
+
+
+def fn_node(name, func_path, *, outputs):
+    return FunctionNode(
+        config=NodeConfig(
+            name=name,
+            setting={"callable": {"type": "string", "value": func_path}},
+            outputs=outputs,
+        )
+    )
+
+
 nodes = {
-    "classify": CustomRoutingNode(routing_rule=classify, name="classify"),
-    "approve": FunctionNode(lambda payload: "approved", name="approve", outputs="$ctx.decisions.auto"),
-    "review": FunctionNode(lambda payload: "pending", name="review", outputs="$ctx.decisions.manual"),
+    "classify": routing_node("classify", f"{MODULE}.classify"),
+    "approve": fn_node(
+        "approve",
+        f"{MODULE}.approve",
+        outputs={"auto": {"type": "expression", "value": "$ctx.decisions.auto"}},
+    ),
+    "review": fn_node(
+        "review",
+        f"{MODULE}.review",
+        outputs={"manual": {"type": "expression", "value": "$ctx.decisions.manual"}},
+    ),
 }
 
 flow = Flow.from_dsl(nodes=nodes, entry="classify", edges=["classify >> (approve | review)"])
@@ -63,19 +101,31 @@ flow.run(ctx, user_input={"score": 0.92})
 ## 3.5 ループのメンタルモデル
 - `LoopNode` はユーザー入力やコンテキスト内のシーケンスを順番に取り出し、ボディノード（`body_route`）へ引き渡します。次の要素が残っていれば自分自身を再度キューに積みます。
 - `enumerate_items=True` を指定すると、各イテレーションに `{"item": 値, "index": i}` が渡されるため、インデックス情報を活用できます。
-- ループ内のノードは複数回実行されるため、副作用は冪等に保つか、`allow_context_access=True` を使って明示的に管理します。
+- ループ内のノードは複数回実行されるため、副作用は冪等に保ち、共有コンテキストを扱う場合は `request_context()` で扱うキーを明示します。
 
 ## 3.6 ループ実装例
 ```python
-from illumo_flow import Flow, FunctionNode, LoopNode
+from illumo_flow import Flow, FunctionNode, LoopNode, NodeConfig
 
 def collect(payload, context):
     context.setdefault("results", []).append(payload)
     return payload
 
+def loop_node(name, *, body_route, enumerate_items=False):
+    setting = {"body_route": {"type": "string", "value": body_route}}
+    if enumerate_items:
+        setting["enumerate_items"] = {"type": "bool", "value": True}
+    return LoopNode(config=NodeConfig(name=name, setting=setting))
+
+
+def fn_node(name, func_path):
+    setting = {"callable": {"type": "string", "value": func_path}}
+    return FunctionNode(config=NodeConfig(name=name, setting=setting))
+
+
 nodes = {
-    "loop": LoopNode(name="loop", body_route="worker", enumerate_items=True),
-    "worker": FunctionNode(collect, name="worker", allow_context_access=True),
+    "loop": loop_node(name="loop", body_route="worker", enumerate_items=True),
+    "worker": fn_node(name="worker", func_path=f"{MODULE}.collect"),
 }
 
 flow = Flow.from_dsl(nodes=nodes, entry="loop", edges=["loop >> worker", "loop >> loop"])

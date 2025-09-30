@@ -31,17 +31,16 @@
 
 ### Node
 **Key methods**
-- `__init__(*, name, inputs=None, outputs=None, metadata=None, allow_context_access=False) -> None` — configure declarative input/output expressions and optional metadata.
+- `__init__(config: NodeConfig) -> None` — consume a normalized configuration object (`name`, `setting`, `inputs`, `outputs`) and prepare declarative bindings and metadata.
 - `bind(node_id: str) -> None` — attach the runtime-assigned identifier prior to execution.
 - `node_id` (property) -> str — retrieve the bound node identifier (raises if unbound).
 - `run(payload: Any) -> Any` — abstract method implemented by subclasses to transform the payload.
 - `describe() -> Dict[str, Any]` — expose module/class/details plus normalized inputs/outputs for tooling.
-- `request_context() -> MutableMapping[str, Any]` — return the shared context during execution when `allow_context_access=True`.
+- `request_context() -> MutableMapping[str, Any]` — return the shared context during execution for advanced coordination.
 
 **Primary attributes**
 - `name` — human-readable identifier used in diagnostics.
 - `_inputs` / `_outputs` — normalized expression lists describing declarative inputs/outputs.
-- `_allow_context_access` — flag gating direct context use.
 - `_active_context` — reference to the shared context while executing (temporary, internal use only).
 
 ### Routing
@@ -71,13 +70,13 @@
 - Static transitions rely solely on DSL edges (e.g., `A >> B`). When runtime branching is required, prefer `RoutingNode` to keep regular nodes focused on payload production.
 - Declare `inputs` / `outputs` (or DSL `context.inputs` / `context.outputs`) so Flow knows which context locations to read and write. Nodes only return the payload; Flow commits it to the designated paths.
 - Flow primes the context with required namespaces so nodes can reference them via expressions (`$ctx.*`, `$joins.*`, etc.).
-- Avoid mutating the underlying context dictionary arbitrarily; reserve writes for documented locations (e.g. metrics or outputs) so that Flow remains the single authority for shared state. Nodes that truly need shared-state access must opt in with `allow_context_access=True` and call `self.request_context()` inside `run`.
+- Avoid mutating the underlying context dictionary arbitrarily; reserve writes for documented locations (e.g. metrics or outputs) so that Flow remains the single authority for shared state. When shared state is unavoidable, call `self.request_context()` and confine mutations to well-known keys (for example, `context.setdefault("metrics", {})`).
 - Flow assigns graph-level node identifiers when registering the graph (typically from DSL/config keys); node instances remain identifier-agnostic so the same instance can be reused across flows.
 - Every node must provide a `name`; Flow validates non-empty strings and uses them in diagnostics while keeping runtime node IDs separate for graph wiring.
 - Implementations may generate private instance-scope UUIDs for metrics, but these must stay internal and never leak into routing or context keys.
 - Nodes automatically wait for all upstream dependencies defined by edges; no additional declarations are required for fan-in.
 - When participating in joins, return structured payloads that downstream consumers can merge without collision.
-- Avoid mutating context namespaces directly; when `allow_context_access` is enabled and additional values must be exposed outside the configured outputs, confine updates to reserved keys (for example, `context.setdefault("metrics", {})`).
+- Avoid mutating context namespaces directly; when additional values must be exposed outside the configured outputs, confine updates to reserved keys (for example, `context.setdefault("metrics", {})`).
 - `RoutingNode` subclasses implement `run(payload) -> Routing | Sequence[Routing] | Sequence[Tuple[Routing, Any]]`. Each `Routing` names a downstream `target` and optional `confidence` / `reason`; a companion payload override can be provided by returning `(Routing, payload)` tuples. Flow records the serialized list under `context["routing"]` and only enqueues the declared targets.
 - `CustomRoutingNode` binds a routing-specific callable via `routing_rule` / `routing_rule_expression` and enforces `Routing` results without reusing `FunctionNode` semantics.
 
@@ -132,7 +131,7 @@ return Routing(target="approve", confidence=0.82, reason="score > 0.8"), payload
 
 ## Configuration Loading
 - `Flow.from_config(source)` accepts a path to a YAML/JSON file or a pre-loaded dictionary.
-- Node entries support `type`, `callable`, `context.input`, `context.output`, optional `describe` metadata, and the opt-in flag `allow_context_access`.
+- Node entries support `type`, `callable`, `context.input`, `context.output`, and optional `describe` metadata.
 - Example configuration:
 
 ```yaml
@@ -179,7 +178,7 @@ flow.run(context)
 
 `Flow.run` returns the mutated `context`; per-node outputs also remain under `context["payloads"]` for inspection.
 
-`FunctionNode` instances expect the implementation path under `context.inputs.callable`. Literal strings are imported when the flow is built, while expressions (for example `$.registry.transform`) are evaluated against the runtime context. `CustomRoutingNode` follows the same pattern using `context.inputs.routing_rule` or a top-level `routing_rule` entry.
+`FunctionNode` instances expect the implementation path under `context.inputs.callable`. Literal strings are imported on demand during execution, while expressions (for example `$.registry.transform`) are evaluated against the runtime context. `CustomRoutingNode` follows the same pattern using `context.inputs.routing_rule` or a top-level `routing_rule` entry.
 
 ### Fan-Out and Broadcast
 - For `A | B` when both edges must fire, Flow forwards the same payload object to each target without additional metadata.
@@ -239,7 +238,7 @@ flow.run(context)
 - **UI readiness**: support round-trippable Flow definitions (e.g. `Flow.to_config()`), publish a node catalog with machine-readable metadata, and document expression/validation rules to power graphical editors.
 
 ### Roadmap
-**Story so far**: Version 0.1.3 locks the runtime to a payload-only node contract, introduces opt-in context access (`allow_context_access`) for exceptional cases, and retains the unified YAML / DSL configuration built in 0.1.x. The next steps extend that foundation so larger projects and UI tooling can rely on predictable hooks, validation, and visibility.
+**Story so far**: Version 0.1.3 locked the runtime to a payload-first contract with explicit `inputs`/`outputs` while preserving YAML / DSL parity. Subsequent iterations streamlined shared context access via `request_context()` so larger projects and UI tooling can rely on predictable hooks, validation, and observability.
 
 **Near term (0.1.x)**
 - Ship `Flow.run` context-return semantics broadly and document patterns for updating the shared context without breaking reserved namespaces.
@@ -278,7 +277,7 @@ flow.run(context)
 - [ ] Declare human-readable `name` and metadata via `describe()`.
 - [ ] Use `RoutingNode` to emit `Routing(target, confidence, reason)` entries (optionally paired with payload overrides) when runtime branching is required so per-branch metadata remains explicit。
 - [ ] Bubble up exceptions; Flow logs diagnostics and fails fast (no automatic retry).
-- [ ] Use `allow_context_access=True` + `self.request_context()` only when additional shared-state writes are unavoidable.
+- [ ] Use `self.request_context()` only when additional shared-state writes are unavoidable, and scope mutations to reserved keys.
 - [ ] Document required context keys in node metadata (`describe()`) so Flow can validate usage.
 
 ## Flow Implementation Checklist

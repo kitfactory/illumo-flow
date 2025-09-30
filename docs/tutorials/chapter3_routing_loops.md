@@ -30,7 +30,7 @@ With the responsibilities and interfaces clarified, we can look at the implement
 
 ## 3.4 Routing Example
 ```python
-from illumo_flow import Flow, CustomRoutingNode, Routing, FunctionNode
+from illumo_flow import Flow, CustomRoutingNode, Routing, FunctionNode, NodeConfig
 
 def classify(payload):
     score = payload.get("score", 0.85)
@@ -48,10 +48,49 @@ def classify(payload):
         reason=reason,
     ), decision_payload
 
+
+
+def approve(payload):
+    return "approved"
+
+
+def review(payload):
+    return "pending"
+
+MODULE = __name__
+
+
+def routing_node(name, rule_path):
+    return CustomRoutingNode(
+        config=NodeConfig(
+            name=name,
+            setting={"routing_rule": {"type": "string", "value": rule_path}},
+        )
+    )
+
+
+def fn_node(name, func_path, *, outputs):
+    return FunctionNode(
+        config=NodeConfig(
+            name=name,
+            setting={"callable": {"type": "string", "value": func_path}},
+            outputs=outputs,
+        )
+    )
+
+
 nodes = {
-    "classify": CustomRoutingNode(routing_rule=classify, name="classify"),
-    "approve": FunctionNode(lambda payload: "approved", name="approve", outputs="$ctx.decisions.auto"),
-    "review": FunctionNode(lambda payload: "pending", name="review", outputs="$ctx.decisions.manual"),
+    "classify": routing_node("classify", f"{MODULE}.classify"),
+    "approve": fn_node(
+        "approve",
+        f"{MODULE}.approve",
+        outputs={"auto": {"type": "expression", "value": "$ctx.decisions.auto"}},
+    ),
+    "review": fn_node(
+        "review",
+        f"{MODULE}.review",
+        outputs={"manual": {"type": "expression", "value": "$ctx.decisions.manual"}},
+    ),
 }
 
 flow = Flow.from_dsl(nodes=nodes, entry="classify", edges=["classify >> (approve | review)"])
@@ -64,11 +103,11 @@ Inspect `context['routing']['classify']` to verify which branch executed and the
 ## 3.5 Loop Execution Model
 - `LoopNode` consumes an iterable payload, dispatches each item to a body node, and enqueues itself again until the iterable is exhausted.
 - With `enumerate_items=True`, the worker receives structures such as `{"item": value, "index": i}`; this is handy for logging or deduplication.
-- Because loop bodies may run multiple times, keep them idempotent and, if they need the context, opt in via `allow_context_access=True` with clearly defined keys.
+- Because loop bodies may run multiple times, keep them idempotent and document any shared context keys you touch via `request_context()`.
 
 ## 3.6 Loop Example
 ```python
-from illumo_flow import Flow, FunctionNode, LoopNode
+from illumo_flow import Flow, FunctionNode, LoopNode, NodeConfig
 
 def collect(payload, context):
     context.setdefault("results", []).append(payload)
@@ -77,10 +116,28 @@ def collect(payload, context):
 def finalize(payload, context):
     return f"Processed {len(context.get('results', []))} items"
 
+def loop_node(name, *, body_route, enumerate_items=False):
+    setting = {"body_route": {"type": "string", "value": body_route}}
+    if enumerate_items:
+        setting["enumerate_items"] = {"type": "bool", "value": True}
+    return LoopNode(config=NodeConfig(name=name, setting=setting))
+
+
+def fn_node(name, func_path, *, outputs=None):
+    setting = {"callable": {"type": "string", "value": func_path}}
+    return FunctionNode(
+        config=NodeConfig(name=name, setting=setting, outputs=outputs)
+    )
+
+
 nodes = {
-    "loop": LoopNode(name="loop", body_route="worker", enumerate_items=True),
-    "worker": FunctionNode(collect, name="worker", allow_context_access=True),
-    "report": FunctionNode(finalize, name="report", allow_context_access=True, outputs="$ctx.summary.message"),
+    "loop": loop_node(name="loop", body_route="worker", enumerate_items=True),
+    "worker": fn_node(name="worker", func_path=f"{MODULE}.collect"),
+    "report": fn_node(
+        name="report",
+        func_path=f"{MODULE}.finalize",
+        outputs={"message": {"type": "expression", "value": "$ctx.summary.message"}},
+    ),
 }
 
 flow = Flow.from_dsl(

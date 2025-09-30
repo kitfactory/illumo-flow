@@ -31,17 +31,16 @@
 
 ### Node
 **主なメソッド**
-- `__init__(*, name, inputs=None, outputs=None, metadata=None, allow_context_access=False) -> None` — 宣言的な入出力設定とメタデータを行う。
+- `__init__(config: NodeConfig) -> None` — 正規化済みの設定オブジェクト（`name` / `setting` / `inputs` / `outputs`）を受け取り、宣言的入出力やメタデータを初期化する。
 - `bind(node_id: str) -> None` — Flow が割り当てた ID を関連付ける。
 - `node_id` (property) -> str — 関連付け済みのノード ID を取得する。
 - `run(payload: Any) -> Any` — サブクラスが実装する本処理。
 - `describe() -> Dict[str, Any]` — モジュール/クラス/入出力などのメタデータを返す。
-- `request_context() -> MutableMapping[str, Any]` — `allow_context_access=True` の場合に実行中の共有コンテキストへアクセスする。
+- `request_context() -> MutableMapping[str, Any]` — 実行中の共有コンテキストへアクセスする。
 
 **主な属性**
 - `name`: 診断で利用する名称。
 - `_inputs` / `_outputs`: 正規化済みの入出力式リスト。
-- `_allow_context_access`: 共有コンテキストに直接アクセスできるかどうか。
 - `_active_context`: 実行中に参照するコンテキスト（内部利用）。
 
 ### Routing
@@ -88,6 +87,7 @@ Flow は `{target, confidence, reason}` の配列として `context["routing"][n
 - `context["payloads"]`: 各ノードが最後に生成したペイロード。エントリノードは Flow が初期化し、ノード実装は自分のスロットを更新する。
 - `context.output` に指定したパスへノードの出力を格納したり、`context.input` で指定したパスから入力を取得したりできる。
 - 共有状態の更新は Flow が定めた場所（例: `context.setdefault("metrics", {})` など）に限定し、n8n / Dify と同様にコンテキストアクセスを最小限にする。
+  必要時は `self.request_context()` を使用し、操作するキーやスキーマを事前に取り決める。
 - `$` で始まる文字列は式として評価されます（例: `$ctx.data.raw`, `$env.API_KEY`）。
 - 文字列内の `{{ ... }}` も式を受け付け、テンプレートとして展開されます。
 - ノードに渡される `payload` は `inputs` から解決された値であり、共有 `context` とは分離しています。ノードは戻り値として `payload` を返し、Flow が `context["payloads"]` と `outputs` へ書き込みます。共有状態が必要な場合も、`context.setdefault(...)` など明示的な操作に限定します。
@@ -106,7 +106,7 @@ Flow は `{target, confidence, reason}` の配列として `context["routing"][n
 
 ## 設定ファイルからのロード
 - `Flow.from_config(source)` は YAML/JSON ファイル、または辞書オブジェクトからフローを構築します。
-- ノード定義では `type`、`callable`、`context.input` / `context.output`、`describe` などに加え、必要であれば `allow_context_access` を指定できます。
+- ノード定義では `type`、`callable`、`context.input` / `context.output`、`describe` などを指定できます。
 - 設定例:
 
 ```yaml
@@ -153,7 +153,7 @@ flow.run(context)
 `Flow.run` は更新後の `context` を返し、各ノードの結果は `context["payloads"]` に保持されます。
 ```
 
-`FunctionNode` は `context.inputs.callable` に実装パスを指定します。リテラル文字列はフロー構築時にインポートされ、`$.registry.transform` のような式は実行時にコンテキストから評価されます。`CustomRoutingNode` では同様に `context.inputs.routing_rule`（またはトップレベルの `routing_rule`）を用いてルーティングロジックを解決します。
+`FunctionNode` は `context.inputs.callable` に実装パスを指定します。リテラル文字列は実行時にオンデマンドで解決され、`$.registry.transform` のような式はコンテキストから評価されます。`CustomRoutingNode` でも同様に `context.inputs.routing_rule`（またはトップレベルの `routing_rule`）を使ってルーティングロジックを解決します。
 
 ### ファンアウト / ブロードキャスト
 - `A | B` の両エッジを発火させるケースでは、Flow が単一の戻り値を各ターゲットへ共有し、追加のメタデータは付与しません。
@@ -181,7 +181,7 @@ flow.run(context)
 2. 実行状態を初期化し（コンテキスト予約キー、ready キューにエントリノードを投入）、ループを開始する。
 3. ディスパッチループ:
    - 並列上限を守りつつキューからノードを取得。
-  - `inputs` からペイロードを解決し、`Node.run(payload)` を呼び出す（`allow_context_access=True` のノードには内部的にコンテキストを結び付ける）。
+  - `inputs` からペイロードを解決し、`Node.run(payload)` を呼び出す（必要に応じて Flow が実行中のコンテキストをアタッチする）。
    - 成功時: ステップを記録し、戻り値を `outputs` へ保存し、戻り値の辞書から後続を決定して投入する。
    - 失敗時: 診断情報を収集し、失敗キーを設定し、ループを中断。
 4. 終了処理: 実行後の `context` 全体を `Flow.run` の戻り値として返し、最終ペイロードは `context["payloads"]` に保持される。
@@ -214,7 +214,7 @@ flow.run(context)
 - **UI 連携準備**: `Flow.to_config()` のようなシリアライズ機構、ノードカタログの機械可読化、式・バリデーション規約の明文化によりワークフロー編集 UI への展開を容易にする。
 
 ### ロードマップ
-**これまでの歩み**: バージョン 0.1.3 でノードの契約をペイロード単独に固定し、例外的なケースだけ `allow_context_access` で共有コンテキストを扱えるように整理しました（0.1.x で整備した `$ctx` / `$.` 式や YAML 構成も維持）。今後はこの基盤の上に、拡張フック・検証・可観測性・UI 連携を計画的に積み上げます。
+**これまでの歩み**: バージョン 0.1.3 でノードの契約をペイロード中心に固定しつつ、YAML / DSL の互換性を維持しました。その後の更新で `request_context()` による共有コンテキスト操作を簡素化し、拡張フック・検証・可観測性・UI 連携へ繋げる基盤を整備しています。
 
 **短期（0.1.x）**
 - `Flow.run` がコンテキストを返す仕様を周知し、ノードが共有コンテキストを更新する際のベストプラクティス（`context.setdefault` など）を明示。

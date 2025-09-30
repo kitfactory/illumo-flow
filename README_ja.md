@@ -9,7 +9,7 @@ pip install illumo-flow
 
 ## クイックスタート
 ```python
-from illumo_flow import Flow, FunctionNode
+from illumo_flow import Flow, FunctionNode, NodeConfig
 
 # まずはペイロードだけを扱う関数を定義（共有コンテキストは必要時のみアクセス）
 
@@ -23,18 +23,34 @@ def load(payload):
     return f"stored:{payload['customer_id']}"
 
 nodes = {
-    "extract": FunctionNode(extract, name="extract", outputs="$ctx.data.raw"),
+    "extract": FunctionNode(
+        config=NodeConfig(
+            name="extract",
+            setting={"callable": {"type": "string", "value": f"{__name__}.extract"}},
+            outputs={"raw": {"type": "expression", "value": "$ctx.data.raw"}},
+        )
+    ),
     "transform": FunctionNode(
-        transform,
-        name="transform",
-        inputs="$ctx.data.raw",
-        outputs="$ctx.data.normalized",
+        config=NodeConfig(
+            name="transform",
+            setting={"callable": {"type": "string", "value": f"{__name__}.transform"}},
+            inputs={"payload": {"type": "expression", "value": "$ctx.data.raw"}},
+            outputs={
+                "normalized": {"type": "expression", "value": "$ctx.data.normalized"}
+            },
+        )
     ),
     "load": FunctionNode(
-        load,
-        name="load",
-        inputs="$ctx.data.normalized",
-        outputs="$ctx.data.persisted",
+        config=NodeConfig(
+            name="load",
+            setting={"callable": {"type": "string", "value": f"{__name__}.load"}},
+            inputs={
+                "payload": {"type": "expression", "value": "$ctx.data.normalized"}
+            },
+            outputs={
+                "persisted": {"type": "expression", "value": "$ctx.data.persisted"}
+            },
+        )
     ),
 }
 
@@ -109,7 +125,7 @@ print(context["data"]["persisted"])
 ### ペイロードとコンテキストの違い
 - `inputs` に従って Flow が各ノードの `payload` を算出します。
 - ノードは次の `payload` を返却し、Flow が `context["payloads"][node_id]` および `outputs` へ書き込みます。
-- 基本方針はペイロード重視です。共有コンテキストへアクセスできるのは `allow_context_access=True` を有効にしたノードだけで、その場合でも `context.setdefault("metrics", {})` など予約・明示的な領域に限定して更新します。
+- 基本方針はペイロード重視です。共有コンテキストが必要な場合は `self.request_context()` を実行中に呼び出し、`context.setdefault("metrics", {})` など操作するキーを事前に取り決めます。
 
 ### ブランチング
 - 動的に分岐させたい場合は、`{"successor_id": payload}` 形式の辞書を戻り値として返します。そのキーに対応する後続ノードだけが実行されます。
@@ -142,7 +158,7 @@ print(context["data"]["persisted"])
 ## ハイライト
 - DSL エッジ (`A >> B`, `(A & B) >> C`)
 - `inputs` / `outputs` 宣言でコンテキスト上の読取・書込パスを明示
-- ペイロード優先（`allow_context_access=True` を指定したノードのみ共有コンテキストへ明示アクセス）
+- ペイロード優先（共有コンテキストへアクセスする際は `request_context()` で明示的に扱う）
 - LoopNode での逐次ループ処理（例: `loop >> loop`, `loop >> worker` のように body ルートを指定）
 - `{successor: payload}` を戻り値とする動的ブランチング
 - 複数親ノードは自動的にジョイン処理

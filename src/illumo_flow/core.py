@@ -6,7 +6,7 @@ import json
 import os
 import re
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Set, Tuple, Union
@@ -70,6 +70,82 @@ def _alias_from_expression(expr: str, index: int) -> str:
 
 class FlowError(Exception):
     """Raised when the flow configuration or runtime execution encounters an error."""
+
+
+@dataclass(frozen=True)
+class NodeConfigEntry:
+    """Normalized representation of node configuration entries."""
+
+    name: str
+    type: str
+    value: Any
+
+
+@dataclass
+class NodeConfig:
+    """Container for node configuration data."""
+
+    name: str
+    setting: Mapping[str, Any] = field(default_factory=dict)
+    inputs: Any = None
+    outputs: Any = None
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise FlowError("NodeConfig 'name' must be a non-empty string")
+        object.__setattr__(self, "setting", self._normalize_section(self.setting))
+        object.__setattr__(self, "inputs", self._normalize_section(self.inputs, allow_raw=True))
+        object.__setattr__(self, "outputs", self._normalize_section(self.outputs, allow_raw=True))
+
+    @staticmethod
+    def _normalize_section(section: Any, *, allow_raw: bool = False) -> Mapping[str, NodeConfigEntry]:
+        normalized: Dict[str, NodeConfigEntry] = {}
+        if isinstance(section, Mapping):
+            for key, raw_value in section.items():
+                normalized[key] = NodeConfig._normalize_entry(name=key, raw_value=raw_value)
+        elif allow_raw and section is not None:
+            normalized["__raw__"] = NodeConfig._normalize_entry(name="__raw__", raw_value=section)
+        return normalized
+
+    @staticmethod
+    def _normalize_entry(name: str, raw_value: Any) -> NodeConfigEntry:
+        if isinstance(raw_value, NodeConfigEntry):
+            return raw_value
+        if isinstance(raw_value, Mapping):
+            value = raw_value.get("value") if "value" in raw_value else raw_value
+            entry_type = raw_value.get("type") or NodeConfig._infer_type(value)
+            return NodeConfigEntry(name=name, type=entry_type, value=value)
+        entry_type = NodeConfig._infer_type(raw_value)
+        return NodeConfigEntry(name=name, type=entry_type, value=raw_value)
+
+    @staticmethod
+    def _infer_type(value: Any) -> str:
+        if isinstance(value, str):
+            if _is_expression_string(value):
+                return "expression"
+            return "string"
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            return "sequence"
+        if isinstance(value, Mapping):
+            return "mapping"
+        return type(value).__name__
+
+    def setting_value(self, key: str, default: Any = None) -> Any:
+        entry = self.setting.get(key)
+        if entry is None:
+            return default
+        return entry.value
+
+    def _section_values(self, section: Mapping[str, NodeConfigEntry]) -> Any:
+        if "__raw__" in section and len(section) == 1:
+            return section["__raw__"].value
+        return {name: entry.value for name, entry in section.items()}
+
+    def inputs_values(self) -> Any:
+        return self._section_values(self.inputs)
+
+    def outputs_values(self) -> Any:
+        return self._section_values(self.outputs)
 
 
 def _ensure_context(context: Optional[MutableMapping[str, Any]]) -> MutableMapping[str, Any]:
@@ -309,24 +385,18 @@ def _evaluate_expression(context: MutableMapping[str, Any], expr: Any) -> Any:
 class Node:
     """Base node interface. Subclasses must implement :meth:`run`."""
 
-    def __init__(
-        self,
-        *,
-        name: str,
-        inputs: Optional[Any] = None,
-        outputs: Optional[Any] = None,
-        metadata: Optional[Mapping[str, Any]] = None,
-        allow_context_access: bool = False,
-    ) -> None:
-        if not name:
-            raise FlowError("Node 'name' must be a non-empty string")
-        self.name = name
-        self._inputs: List[Tuple[str, str]] = _normalize_inputs_spec(inputs)
-        self._outputs: List[Tuple[Optional[str], str, bool]] = _normalize_outputs_spec(outputs)
-        self._metadata: Dict[str, Any] = dict(metadata or {})
+    def __init__(self, *, config: NodeConfig) -> None:
+        self.name = config.name
+        inputs_spec = config.inputs_values() or None
+        outputs_spec = config.outputs_values() or None
+        metadata_value = config.setting_value("metadata", {})
+
+        self._inputs: List[Tuple[str, str]] = _normalize_inputs_spec(inputs_spec)
+        self._outputs: List[Tuple[Optional[str], str, bool]] = _normalize_outputs_spec(outputs_spec)
+        self._metadata: Dict[str, Any] = dict(metadata_value or {})
         self._node_id: Optional[str] = None
-        self._allow_context_access = allow_context_access
         self._active_context: Optional[MutableMapping[str, Any]] = None
+        self._config = config
 
     # --- Lifecycle helpers -------------------------------------------------
 
@@ -356,7 +426,6 @@ class Node:
                 {"alias": alias or _alias_from_path(path), "path": path}
                 for alias, path, _ in self._outputs
             ],
-            "allow_context_access": self._allow_context_access,
         }
         base.update(self._metadata)
         return base
@@ -395,10 +464,6 @@ class Node:
                 _set_to_path(target_mapping, rel_path, to_store)
 
     def request_context(self) -> MutableMapping[str, Any]:
-        if not self._allow_context_access:
-            raise FlowError(
-                "Context access is disabled for this node. Enable 'allow_context_access' if required."
-            )
         if self._active_context is None:
             raise FlowError("Context is only available during active node execution")
         return self._active_context
@@ -444,28 +509,17 @@ class RoutingNode(Node):
 class FunctionNode(Node):
     """Node that wraps a callable of signature ``callable(payload, context)``."""
 
-    def __init__(
-        self,
-        func: Optional[Callable[..., Any]] = None,
-        *,
-        callable_expression: Optional[str] = None,
-        name: str,
-        inputs: Optional[Any] = None,
-        outputs: Optional[Any] = None,
-        metadata: Optional[Mapping[str, Any]] = None,
-        allow_context_access: bool = False,
-    ) -> None:
+    def __init__(self, *, config: NodeConfig) -> None:
+        func = config.setting_value("callable")
+        callable_expression = config.setting_value("callable_expression")
         if func is None and callable_expression is None:
-            raise FlowError("FunctionNode requires either 'func' or 'callable_expression'")
+            raise FlowError("FunctionNode requires either 'callable' or 'callable_expression' in settings")
 
-        super().__init__(
-            name=name,
-            inputs=inputs,
-            outputs=outputs,
-            metadata=metadata,
-            allow_context_access=allow_context_access,
-        )
-        self._func: Optional[Callable[..., Any]] = func
+        super().__init__(config=config)
+        if func is not None and not isinstance(func, str):
+            raise FlowError("FunctionNode 'callable' setting must be a string import path")
+        self._callable_path: Optional[str] = func
+        self._func: Optional[Callable[..., Any]] = None
         self._callable_expression = callable_expression
 
     def _resolve_callable(self, context: MutableMapping[str, Any], value: Any) -> Callable[..., Any]:
@@ -505,6 +559,9 @@ class FunctionNode(Node):
                 current_payload = remaining
 
         effective = self._func
+        if effective is None and self._callable_path is not None:
+            effective = self._resolve_callable(context, self._callable_path)
+            self._func = effective
         if dynamic_value is not None:
             effective = self._resolve_callable(context, dynamic_value)
 
@@ -548,9 +605,7 @@ class FunctionNode(Node):
                 first = positional[0]
                 if first.name in context_names:
                     if not can_supply_context:
-                        raise FlowError(
-                            "Callable expects context but 'allow_context_access' is disabled for this node"
-                        )
+                        raise FlowError("Callable expects flow context but none is available")
                     return func(context)
                 return func(payload)
 
@@ -558,16 +613,12 @@ class FunctionNode(Node):
 
             if first.name in context_names and second.name in payload_names:
                 if not can_supply_context:
-                    raise FlowError(
-                        "Callable expects context but 'allow_context_access' is disabled for this node"
-                    )
+                    raise FlowError("Callable expects flow context but none is available")
                 return func(context, payload)
 
             if first.name in payload_names and second.name in context_names:
                 if not can_supply_context:
-                    raise FlowError(
-                        "Callable expects context but 'allow_context_access' is disabled for this node"
-                    )
+                    raise FlowError("Callable expects flow context but none is available")
                 return func(payload, context)
 
             if first.name in payload_names:
@@ -575,9 +626,7 @@ class FunctionNode(Node):
 
             if first.name in context_names:
                 if not can_supply_context:
-                    raise FlowError(
-                        "Callable expects context but 'allow_context_access' is disabled for this node"
-                    )
+                    raise FlowError("Callable expects flow context but none is available")
                 if len(positional) == 2 and second.name not in context_names:
                     return func(context, payload)
                 return func(context)
@@ -603,16 +652,11 @@ class FunctionNode(Node):
         if context is None:
             raise FlowError("FunctionNode cannot execute without an active flow context")
         func, effective_payload = self._effective_callable(context, payload)
-        context_for_callable = context if self._allow_context_access else None
-        result = self._invoke_callable(func, effective_payload, context_for_callable)
+        result = self._invoke_callable(func, effective_payload, context)
         if isinstance(result, tuple) and len(result) == 2:
             output, delta = result
             if isinstance(delta, Mapping):
-                if context_for_callable is None:
-                    raise FlowError(
-                        "Callable attempted to mutate context without enabling 'allow_context_access'"
-                    )
-                context_for_callable.update(delta)
+                context.update(delta)
             return output
         return result
 
@@ -620,30 +664,19 @@ class FunctionNode(Node):
 class CustomRoutingNode(RoutingNode):
     """Routing node powered by a user supplied callable returning :class:`Routing`."""
 
-    def __init__(
-        self,
-        routing_rule: Optional[Callable[..., Any]] = None,
-        *,
-        routing_rule_expression: Optional[str] = None,
-        name: str,
-        inputs: Optional[Any] = None,
-        outputs: Optional[Any] = None,
-        metadata: Optional[Mapping[str, Any]] = None,
-        allow_context_access: bool = False,
-    ) -> None:
+    def __init__(self, *, config: NodeConfig) -> None:
+        routing_rule = config.setting_value("routing_rule")
+        routing_rule_expression = config.setting_value("routing_rule_expression")
         if routing_rule is None and routing_rule_expression is None:
             raise FlowError(
-                "CustomRoutingNode requires 'routing_rule' or 'routing_rule_expression'"
+                "CustomRoutingNode requires 'routing_rule' or 'routing_rule_expression' in settings"
             )
 
-        super().__init__(
-            name=name,
-            inputs=inputs,
-            outputs=outputs,
-            metadata=metadata,
-            allow_context_access=allow_context_access,
-        )
-        self._routing_rule = routing_rule
+        super().__init__(config=config)
+        if routing_rule is not None and not isinstance(routing_rule, str):
+            raise FlowError("CustomRoutingNode 'routing_rule' setting must be a string import path")
+        self._routing_rule_path: Optional[str] = routing_rule
+        self._routing_rule: Optional[Callable[..., Any]] = None
         self._routing_rule_expression = routing_rule_expression
 
     def _resolve_routing_rule(self, value: Any) -> Callable[..., Any]:
@@ -684,10 +717,13 @@ class CustomRoutingNode(RoutingNode):
 
         if dynamic_value is not None:
             routing_callable = self._resolve_routing_rule(dynamic_value)
-        elif self._routing_rule is not None:
-            routing_callable = self._resolve_routing_rule(self._routing_rule)
         else:
-            raise FlowError("CustomRoutingNode has no routing rule configured")
+            if self._routing_rule is None and self._routing_rule_path is not None:
+                self._routing_rule = self._resolve_routing_rule(self._routing_rule_path)
+            if self._routing_rule is not None:
+                routing_callable = self._routing_rule
+            else:
+                raise FlowError("CustomRoutingNode has no routing rule configured")
 
         return routing_callable, current_payload
 
@@ -701,40 +737,71 @@ class CustomRoutingNode(RoutingNode):
 
         try:
             signature = inspect.signature(routing_callable)
-            parameters = list(signature.parameters.values())
         except (TypeError, ValueError):
-            parameters = []
+            signature = None
 
+        context_names = {"context", "ctx"}
+        payload_names = {"payload", "value", "data", "input", "item", "items"}
         can_supply_context = context is not None
-        expects_payload = True
 
-        if parameters:
-            first_param = parameters[0]
-            if first_param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
-                expects_payload = True
-            else:
-                expects_payload = payload is not None or first_param.default is inspect._empty
-        else:
-            expects_payload = False
+        if signature is not None:
+            positional = [
+                param
+                for param in signature.parameters.values()
+                if param.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            ]
 
-        if can_supply_context:
-            if expects_payload:
+            if not positional:
+                return routing_callable()
+
+            if len(positional) == 1:
+                first = positional[0]
+                if first.name in context_names:
+                    if not can_supply_context:
+                        raise FlowError("Routing rule expects flow context but none is available")
+                    return routing_callable(context)
+                return routing_callable(payload)
+
+            first, second = positional[0], positional[1]
+
+            if first.name in context_names and second.name in payload_names:
+                if not can_supply_context:
+                    raise FlowError("Routing rule expects flow context but none is available")
+                return routing_callable(context, payload)
+
+            if first.name in payload_names and second.name in context_names:
+                if not can_supply_context:
+                    raise FlowError("Routing rule expects flow context but none is available")
+                return routing_callable(payload, context)
+
+            if first.name in payload_names:
+                return routing_callable(payload)
+
+            if first.name in context_names:
+                if not can_supply_context:
+                    raise FlowError("Routing rule expects flow context but none is available")
+                if len(positional) == 2 and second.name not in context_names:
+                    return routing_callable(context, payload)
+                return routing_callable(context)
+
+            if can_supply_context:
                 try:
                     return routing_callable(payload, context)
                 except TypeError:
                     return routing_callable(context, payload)
-            try:
-                return routing_callable(context)
-            except TypeError:
-                return routing_callable()
 
-        if expects_payload:
-            try:
-                return routing_callable(payload)
-            except TypeError:
-                return routing_callable()
+            return routing_callable(payload)
 
-        return routing_callable()
+        if can_supply_context:
+            try:
+                return routing_callable(payload, context)
+            except TypeError:
+                return routing_callable(context, payload)
+        return routing_callable(payload)
 
     def run(self, payload: Any) -> Routing:  # type: ignore[override]
         context = self._active_context
@@ -742,17 +809,12 @@ class CustomRoutingNode(RoutingNode):
             raise FlowError("CustomRoutingNode cannot execute without an active flow context")
 
         routing_callable, effective_payload = self._effective_routing_rule(context, payload)
-        context_for_callable = context if self._allow_context_access else None
-        result = self._invoke_routing_rule(routing_callable, effective_payload, context_for_callable)
+        result = self._invoke_routing_rule(routing_callable, effective_payload, context)
 
         if isinstance(result, tuple) and len(result) == 2:
             output, delta = result
             if isinstance(delta, Mapping):
-                if context_for_callable is None:
-                    raise FlowError(
-                        "Routing rule attempted to mutate context without enabling 'allow_context_access'"
-                    )
-                context_for_callable.update(delta)
+                context.update(delta)
             result = output
 
         return self._ensure_routing(result)
@@ -763,30 +825,19 @@ class LoopNode(RoutingNode):
 
     _STATE_KEY = "__loop_state__"
 
-    def __init__(
-        self,
-        *,
-        name: str,
-        body_route: str,
-        loop_route: Optional[str] = None,
-        items_key: Optional[str] = None,
-        enumerate_items: bool = False,
-        inputs: Optional[Any] = None,
-        outputs: Optional[Any] = None,
-        metadata: Optional[Mapping[str, Any]] = None,
-    ) -> None:
+    def __init__(self, *, config: NodeConfig) -> None:
+        body_route = config.setting_value("body_route")
         if not body_route:
-            raise FlowError("LoopNode requires 'body_route' to identify the iteration target")
-        super().__init__(
-            name=name,
-            inputs=inputs,
-            outputs=outputs,
-            metadata=metadata,
-        )
-        self._body_route = body_route
-        self._loop_route = loop_route
-        self._items_key = items_key
-        self._enumerate = enumerate_items
+            raise FlowError("LoopNode requires 'body_route' in settings to identify the iteration target")
+
+        super().__init__(config=config)
+        self._body_route = str(body_route)
+        loop_route = config.setting_value("loop_route")
+        self._loop_route = str(loop_route) if loop_route else None
+        items_key = config.setting_value("items_key")
+        self._items_key = str(items_key) if items_key else None
+        enumerate_flag = config.setting_value("enumerate_items", False)
+        self._enumerate = bool(enumerate_flag)
 
     def run(self, payload: Any) -> Any:
         state = self._state_from_payload(payload)
@@ -974,7 +1025,7 @@ class Flow:
 
             callable_spec: Optional[Any] = None
             callable_expression: Optional[str] = None
-            func_obj: Optional[Any] = None
+            callable_value: Optional[str] = None
 
             callable_keys = ("routing_rule", "callable")
 
@@ -995,52 +1046,65 @@ class Flow:
                         break
 
             if callable_spec is not None:
-                if isinstance(callable_spec, str) and not _is_expression_string(callable_spec):
-                    func_obj = _import_object(callable_spec)
-                elif isinstance(callable_spec, str):
-                    callable_expression = callable_spec
+                if isinstance(callable_spec, str):
+                    if _is_expression_string(callable_spec):
+                        callable_expression = callable_spec
+                    else:
+                        callable_value = callable_spec
                 else:
                     raise FlowError("Callable specification must be a string")
 
-            common_kwargs = {
-                "name": cfg.get("name", node_id),
-                "inputs": context_cfg.get("inputs"),
-                "outputs": outputs_cfg,
-                "metadata": cfg.get("describe"),
-                "allow_context_access": cfg.get("allow_context_access"),
-            }
-            common_kwargs = {k: v for k, v in common_kwargs.items() if v is not None}
+            def _entry(value: Any, entry_type: Optional[str] = None) -> Mapping[str, Any]:
+                data: Dict[str, Any] = {"value": value}
+                if entry_type:
+                    data["type"] = entry_type
+                return data
 
+            setting_entries: Dict[str, Any] = {}
+            node_name = cfg.get("name", node_id)
+            metadata = cfg.get("describe")
+            if metadata is not None:
+                setting_entries["metadata"] = _entry(metadata, "metadata")
             if issubclass(NodeCls, FunctionNode):
-                fn_kwargs = dict(common_kwargs)
-                if func_obj is not None:
-                    fn_kwargs["func"] = func_obj
+                if callable_value is not None:
+                    setting_entries["callable"] = _entry(callable_value, "string")
                 if callable_expression is not None:
-                    fn_kwargs["callable_expression"] = callable_expression
-                if "func" not in fn_kwargs and "callable_expression" not in fn_kwargs:
+                    setting_entries["callable_expression"] = _entry(callable_expression, "expression")
+                if "callable" not in setting_entries and "callable_expression" not in setting_entries:
                     raise FlowError(
                         f"FunctionNode '{node_id}' requires a callable via 'context.inputs.callable' or 'callable'"
                     )
-                try:
-                    node = NodeCls(**fn_kwargs)
-                except TypeError as exc:
-                    raise FlowError(f"Unable to instantiate node '{node_id}': {exc}")
             elif issubclass(NodeCls, CustomRoutingNode):
-                routing_kwargs = dict(common_kwargs)
-                if func_obj is not None:
-                    routing_kwargs["routing_rule"] = func_obj
+                if callable_value is not None:
+                    setting_entries["routing_rule"] = _entry(callable_value, "string")
                 if callable_expression is not None:
-                    routing_kwargs["routing_rule_expression"] = callable_expression
-                if "routing_rule" not in routing_kwargs and "routing_rule_expression" not in routing_kwargs:
+                    setting_entries["routing_rule_expression"] = _entry(callable_expression, "expression")
+                if "routing_rule" not in setting_entries and "routing_rule_expression" not in setting_entries:
                     raise FlowError(
                         f"CustomRoutingNode '{node_id}' requires a rule via 'context.inputs.routing_rule' or 'routing_rule'"
                     )
-                try:
-                    node = NodeCls(**routing_kwargs)
-                except TypeError as exc:
-                    raise FlowError(f"Unable to instantiate node '{node_id}': {exc}")
-            else:
-                node = NodeCls(**common_kwargs)
+
+            if issubclass(NodeCls, LoopNode):
+                for key, entry_type in (
+                    ("body_route", "string"),
+                    ("loop_route", "string"),
+                    ("items_key", "string"),
+                    ("enumerate_items", "bool"),
+                ):
+                    if key in cfg:
+                        setting_entries[key] = _entry(cfg[key], entry_type)
+
+            node_config = NodeConfig(
+                name=node_name,
+                setting=setting_entries,
+                inputs=context_cfg.get("inputs"),
+                outputs=outputs_cfg,
+            )
+
+            try:
+                node = NodeCls(config=node_config)
+            except TypeError as exc:
+                raise FlowError(f"Unable to instantiate node '{node_id}': {exc}")
 
             nodes[node_id] = node
 

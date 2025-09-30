@@ -18,7 +18,7 @@ Flows often need to split work across multiple nodes and later recombine the res
 The following flow duplicates a seed payload to two enrichment nodes (`geo`, `risk`), then recombines their outputs in a `merge` node. The code demonstrates how the DSL expresses parallel branches and how the join node accesses the aggregated payload.
 
 ```python
-from illumo_flow import Flow, FunctionNode
+from illumo_flow import Flow, FunctionNode, NodeConfig
 
 def seed(payload):
     return {"id": 1}
@@ -32,11 +32,41 @@ def risk(payload):
 def merge(inputs):
     return {"geo": inputs["geo"], "risk": inputs["risk"]}
 
+MODULE = __name__
+
+def fn_node(name, func_path, *, inputs=None, outputs=None):
+    return FunctionNode(
+        config=NodeConfig(
+            name=name,
+            setting={"callable": {"type": "string", "value": func_path}},
+            inputs=inputs,
+            outputs=outputs,
+        )
+    )
+
+
 nodes = {
-    "seed": FunctionNode(seed, name="seed", outputs="$ctx.data.customer"),
-    "geo": FunctionNode(geo, name="geo", inputs="$ctx.data.customer"),
-    "risk": FunctionNode(risk, name="risk", inputs="$ctx.data.customer"),
-    "merge": FunctionNode(merge, name="merge", inputs="$joins.merge", outputs="$ctx.data.profile"),
+    "seed": fn_node(
+        "seed",
+        f"{MODULE}.seed",
+        outputs={"customer": {"type": "expression", "value": "$ctx.data.customer"}},
+    ),
+    "geo": fn_node(
+        "geo",
+        f"{MODULE}.geo",
+        inputs={"payload": {"type": "expression", "value": "$ctx.data.customer"}},
+    ),
+    "risk": fn_node(
+        "risk",
+        f"{MODULE}.risk",
+        inputs={"payload": {"type": "expression", "value": "$ctx.data.customer"}},
+    ),
+    "merge": fn_node(
+        "merge",
+        f"{MODULE}.merge",
+        inputs={"joined": {"type": "expression", "value": "$joins.merge"}},
+        outputs={"profile": {"type": "expression", "value": "$ctx.data.profile"}},
+    ),
 }
 
 flow = Flow.from_dsl(
@@ -58,11 +88,24 @@ After execution:
 - Outputs can likewise be a mapping, allowing a node to populate multiple context paths in one step without manual context mutation.
 
 ```python
+def split_ranges(payload):
+    return {"left": payload[::2], "right": payload[1::2]}
+
 split_config = FunctionNode(
-    lambda payload: {"left": payload[::2], "right": payload[1::2]},
-    name="split",
-    inputs="$ctx.data.source",
-    outputs={"left": "$ctx.data.left", "right": "$ctx.data.right"},
+    config=NodeConfig(
+        name="split",
+        setting={
+            "callable": {
+                "type": "string",
+                "value": f"{MODULE}.split_ranges",
+            }
+        },
+        inputs={"source": {"type": "expression", "value": "$ctx.data.source"}},
+        outputs={
+            "left": {"type": "expression", "value": "$ctx.data.left"},
+            "right": {"type": "expression", "value": "$ctx.data.right"},
+        },
+    )
 )
 ```
 

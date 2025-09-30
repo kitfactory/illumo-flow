@@ -5,7 +5,7 @@ The detailed, chaptered walkthrough now lives in [`docs/tutorials`](tutorials/RE
 
 ## Minimal Linear Flow
 ```python
-from illumo_flow import Flow, FunctionNode
+from illumo_flow import Flow, FunctionNode, NodeConfig
 
 def extract(payload):
     return {"customer_id": 42, "source": "demo"}
@@ -17,18 +17,34 @@ def load(payload):
     return f"stored:{payload['customer_id']}"
 
 nodes = {
-    "extract": FunctionNode(extract, name="extract", outputs="$ctx.data.raw"),
+    "extract": FunctionNode(
+        config=NodeConfig(
+            name="extract",
+            setting={"callable": {"type": "string", "value": f"{__name__}.extract"}},
+            outputs={"raw": {"type": "expression", "value": "$ctx.data.raw"}},
+        )
+    ),
     "transform": FunctionNode(
-        transform,
-        name="transform",
-        inputs="$ctx.data.raw",
-        outputs="$ctx.data.normalized",
+        config=NodeConfig(
+            name="transform",
+            setting={"callable": {"type": "string", "value": f"{__name__}.transform"}},
+            inputs={"payload": {"type": "expression", "value": "$ctx.data.raw"}},
+            outputs={
+                "normalized": {"type": "expression", "value": "$ctx.data.normalized"}
+            },
+        )
     ),
     "load": FunctionNode(
-        load,
-        name="load",
-        inputs="$ctx.data.normalized",
-        outputs="$ctx.data.persisted",
+        config=NodeConfig(
+            name="load",
+            setting={"callable": {"type": "string", "value": f"{__name__}.load"}},
+            inputs={
+                "payload": {"type": "expression", "value": "$ctx.data.normalized"}
+            },
+            outputs={
+                "persisted": {"type": "expression", "value": "$ctx.data.persisted"}
+            },
+        )
     ),
 }
 

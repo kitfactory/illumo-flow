@@ -12,7 +12,7 @@
 
 ## Node Lifecycle
 - Abstract `Node` defines the minimal contract for binding, metadata exposure, and execution delegation.
-- Subclasses implement `run(payload) -> Any`; Flow wraps the call so it can record payloads, write configured outputs, and manage shared context access. Nodes that opt in via `allow_context_access=True` can call `self.request_context()` when special handling is unavoidable.
+- Subclasses implement `run(payload) -> Any`; Flow wraps the call so it can record payloads, write configured outputs, and still expose shared context access via `self.request_context()` when special handling is unavoidable.
 - `RoutingNode` (and helpers such as `CustomRoutingNode`) implement `run(payload) -> Routing | Sequence[Routing] | Sequence[Tuple[Routing, Any]]`, returning structured branch decisions instead of plain payloads.
 - `run_async` reuses the synchronous semantics by delegating to `run`, keeping the default implementation simple.
 - Concrete nodes may be registered via subclass discovery or explicit instantiation, enabling environment-specific extensions.
@@ -31,26 +31,66 @@
 
 ## DSL Quickstart
 ```python
-from illumo_flow import Flow, FunctionNode
+from illumo_flow import Flow, FunctionNode, NodeConfig
 
-start = FunctionNode(lambda payload: payload, name="start", outputs="$ctx.data.start")
+
+def start_payload(payload):
+    return payload
+
+
+def emit_a(payload):
+    return f"A:{payload}"
+
+
+def emit_b(payload):
+    return f"B:{payload}"
+
+
+def join_values(payload):
+    return f"JOIN:{payload['A']},{payload['B']}"
+
+
+MODULE = __name__
+
+start = FunctionNode(
+    config=NodeConfig(
+        name="start",
+        setting={"callable": {"type": "string", "value": f"{MODULE}.start_payload"}},
+        outputs={"start": {"type": "expression", "value": "$ctx.data.start"}},
+    )
+)
 A = FunctionNode(
-    lambda payload: f"A:{payload}",
-    name="A",
-    inputs="$ctx.data.start",
-    outputs="$ctx.data.A",
+    config=NodeConfig(
+        name="A",
+        setting={
+            "callable": {"type": "string", "value": f"{MODULE}.emit_a"}
+        },
+        inputs={"payload": {"type": "expression", "value": "$ctx.data.start"}},
+        outputs={"A": {"type": "expression", "value": "$ctx.data.A"}},
+    )
 )
 B = FunctionNode(
-    lambda payload: f"B:{payload}",
-    name="B",
-    inputs="$ctx.data.start",
-    outputs="$ctx.data.B",
+    config=NodeConfig(
+        name="B",
+        setting={
+            "callable": {"type": "string", "value": f"{MODULE}.emit_b"}
+        },
+        inputs={"payload": {"type": "expression", "value": "$ctx.data.start"}},
+        outputs={"B": {"type": "expression", "value": "$ctx.data.B"}},
+    )
 )
 join = FunctionNode(
-    lambda payload: f"JOIN:{payload['A']},{payload['B']}",
-    name="join",
-    inputs="$joins.join",
-    outputs="$ctx.data.join",
+    config=NodeConfig(
+        name="join",
+        setting={
+            "callable": {
+                "type": "string",
+                "value": f"{MODULE}.join_values"
+            }
+        },
+        inputs={"join": {"type": "expression", "value": "$joins.join"}},
+        outputs={"joined": {"type": "expression", "value": "$ctx.data.join"}},
+    )
 )
 
 flow = Flow.from_dsl(

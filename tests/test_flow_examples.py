@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import textwrap
 from pathlib import Path
+from typing import Any, Dict, Mapping, MutableMapping, Optional
 
 import pytest
 import yaml
@@ -13,9 +14,119 @@ for candidate in (SRC, ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from illumo_flow import Flow, FlowError, FunctionNode, LoopNode, Routing, CustomRoutingNode
+from illumo_flow import (
+    Flow,
+    FlowError,
+    FunctionNode,
+    LoopNode,
+    Routing,
+    CustomRoutingNode,
+    NodeConfig,
+)
 from examples import ops
 from examples.sample_flows import EXAMPLE_FLOWS
+
+
+def fn_identity(payload: Any) -> Any:
+    return payload
+
+
+def fn_emit_label_a(payload: Any) -> Dict[str, str]:
+    return {"label": "A"}
+
+
+def fn_emit_label_b(payload: Any) -> Dict[str, str]:
+    return {"label": "B"}
+
+
+def fn_join_labels(payload: Mapping[str, Any]) -> str:
+    return payload["A"]["label"] + payload["B"]["label"]
+
+
+def fn_emit_mapping(payload: Any) -> Dict[str, int]:
+    return {"a": 1, "b": 2}
+
+
+def fn_collect(payload: Any, context: MutableMapping[str, Any]) -> Any:
+    bucket = context.setdefault("results", [])
+    bucket.append(payload)
+    return payload
+
+
+def fn_greet_city(payload: Mapping[str, Any]) -> str:
+    return f"{payload['greeting']}:{payload['city']}"
+
+
+def fn_bad_router(payload: Any) -> Routing:
+    return Routing(target="next")
+
+
+def make_function_node(
+    *,
+    name: str,
+    callable_path: Optional[str] = None,
+    callable_expression: Optional[str] = None,
+    inputs: Optional[Any] = None,
+    outputs: Optional[Any] = None,
+    metadata: Optional[Mapping[str, Any]] = None,
+) -> FunctionNode:
+    setting: Dict[str, Dict[str, Any]] = {}
+    if callable_path is None and callable_expression is None:
+        raise ValueError("callable_path or callable_expression must be provided")
+    if callable_path is not None:
+        setting["callable"] = {"type": "string", "value": callable_path}
+    if callable_expression is not None:
+        setting["callable_expression"] = {"type": "expression", "value": callable_expression}
+    if metadata is not None:
+        setting["metadata"] = {"type": "metadata", "value": metadata}
+    return FunctionNode(
+        config=NodeConfig(name=name, setting=setting, inputs=inputs, outputs=outputs)
+    )
+
+
+def make_routing_node(
+    *,
+    name: str,
+    routing_rule_path: Optional[str] = None,
+    routing_rule_expression: Optional[str] = None,
+    inputs: Optional[Any] = None,
+    outputs: Optional[Any] = None,
+) -> CustomRoutingNode:
+    setting: Dict[str, Dict[str, Any]] = {}
+    if routing_rule_path is not None:
+        setting["routing_rule"] = {"type": "string", "value": routing_rule_path}
+    if routing_rule_expression is not None:
+        setting["routing_rule_expression"] = {
+            "type": "expression",
+            "value": routing_rule_expression,
+        }
+    return CustomRoutingNode(
+        config=NodeConfig(name=name, setting=setting, inputs=inputs, outputs=outputs)
+    )
+
+
+def make_loop_node(
+    *,
+    name: str,
+    body_route: str,
+    loop_route: Optional[str] = None,
+    items_key: Optional[str] = None,
+    enumerate_items: bool = False,
+    inputs: Optional[Any] = None,
+    outputs: Optional[Any] = None,
+) -> LoopNode:
+    setting: Dict[str, Dict[str, Any]] = {
+        "body_route": {"type": "string", "value": body_route},
+    }
+    if loop_route is not None:
+        setting["loop_route"] = {"type": "string", "value": loop_route}
+    if items_key is not None:
+        setting["items_key"] = {"type": "string", "value": items_key}
+    if enumerate_items:
+        setting["enumerate_items"] = {"type": "bool", "value": enumerate_items}
+    return LoopNode(
+        config=NodeConfig(name=name, setting=setting, inputs=inputs, outputs=outputs)
+    )
 
 
 def build_flow(example):
@@ -48,16 +159,19 @@ def test_examples_run_without_error(example):
 
 
 def test_join_node_receives_parent_dictionary():
-    def make_value(label):
-        return lambda payload: {"label": label}
-
+    module = __name__
     nodes = {
-        "start": FunctionNode(lambda payload: payload, name="start"),
-        "A": FunctionNode(make_value("A"), name="A"),
-        "B": FunctionNode(make_value("B"), name="B"),
-        "join": FunctionNode(
-            lambda payload: payload["A"]["label"] + payload["B"]["label"],
-            name="join",
+        "start": make_function_node(
+            name="start", callable_path=f"{module}.fn_identity"
+        ),
+        "A": make_function_node(
+            name="A", callable_path=f"{module}.fn_emit_label_a"
+        ),
+        "B": make_function_node(
+            name="B", callable_path=f"{module}.fn_emit_label_b"
+        ),
+        "join": make_function_node(
+            name="join", callable_path=f"{module}.fn_join_labels"
         ),
     }
     flow = Flow.from_dsl(
@@ -77,16 +191,20 @@ def test_join_node_receives_parent_dictionary():
 
 def test_context_paths_are_honored():
     nodes = {
-        "extract": FunctionNode(ops.extract, name="extract", outputs="$ctx.data.raw"),
-        "transform": FunctionNode(
-            ops.transform,
+        "extract": make_function_node(
+            name="extract",
+            callable_path="examples.ops.extract",
+            outputs="$ctx.data.raw",
+        ),
+        "transform": make_function_node(
             name="transform",
+            callable_path="examples.ops.transform",
             inputs="$ctx.data.raw",
             outputs="$ctx.data.normalized",
         ),
-        "load": FunctionNode(
-            ops.load,
+        "load": make_function_node(
             name="load",
+            callable_path="examples.ops.load",
             inputs="$ctx.data.normalized",
             outputs="$ctx.data.persisted",
         ),
@@ -106,13 +224,10 @@ def test_context_paths_are_honored():
 
 
 def test_multiple_outputs_configuration():
-    def producer(payload):
-        return {"a": 1, "b": 2}
-
     nodes = {
-        "producer": FunctionNode(
-            producer,
+        "producer": make_function_node(
             name="producer",
+            callable_path=f"{__name__}.fn_emit_mapping",
             outputs={"a": "$ctx.data.alpha", "b": "$ctx.data.beta"},
         ),
     }
@@ -182,9 +297,9 @@ def test_expression_inputs_and_env(monkeypatch):
     monkeypatch.setenv("CITY", "Tokyo")
 
     nodes = {
-        "greet": FunctionNode(
-            lambda payload: f"{payload['greeting']}:{payload['city']}",
+        "greet": make_function_node(
             name="greet",
+            callable_path=f"{__name__}.fn_greet_city",
             inputs={
                 "greeting": "おはようございます {{ $.user.name }}",
                 "city": "$env.CITY",
@@ -201,9 +316,9 @@ def test_expression_inputs_and_env(monkeypatch):
 
 def test_callable_resolved_from_context_expression():
     nodes = {
-        "dyn": FunctionNode(
-            callable_expression="$.registry.greeter",
+        "dyn": make_function_node(
             name="dyn",
+            callable_expression="$.registry.greeter",
             outputs="$ctx.data.value",
         )
     }
@@ -217,12 +332,14 @@ def test_callable_resolved_from_context_expression():
 
 
 def test_function_node_returning_routing_is_rejected():
-    def bad_router(payload):
-        return Routing(target="next")
-
+    module = __name__
     nodes = {
-        "start": FunctionNode(bad_router, name="start"),
-        "next": FunctionNode(lambda payload: payload, name="next"),
+        "start": make_function_node(
+            name="start", callable_path=f"{module}.fn_bad_router"
+        ),
+        "next": make_function_node(
+            name="next", callable_path=f"{module}.fn_identity"
+        ),
     }
 
     flow = Flow.from_dsl(nodes=nodes, entry="start", edges=["start >> next"])
@@ -237,11 +354,14 @@ def test_loop_node_iterates_over_sequence():
         return payload
 
     nodes = {
-        "loop": LoopNode(name="loop", body_route="worker", enumerate_items=True),
-        "worker": FunctionNode(
-            collect,
+        "loop": make_loop_node(
+            name="loop",
+            body_route="worker",
+            enumerate_items=True,
+        ),
+        "worker": make_function_node(
             name="worker",
-            allow_context_access=True,
+            callable_path=f"{__name__}.fn_collect",
         ),
     }
 

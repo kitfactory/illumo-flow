@@ -9,7 +9,7 @@ pip install illumo-flow
 
 ## Quick Example
 ```python
-from illumo_flow import Flow, FunctionNode
+from illumo_flow import Flow, FunctionNode, NodeConfig
 
 # Define lightweight callables (payload-first; shared context access is opt-in)
 def extract(payload):
@@ -22,18 +22,34 @@ def load(payload):
     return f"stored:{payload['customer_id']}"
 
 nodes = {
-    "extract": FunctionNode(extract, name="extract", outputs="$ctx.data.raw"),
+    "extract": FunctionNode(
+        config=NodeConfig(
+            name="extract",
+            setting={"callable": {"type": "string", "value": f"{__name__}.extract"}},
+            outputs={"raw": {"type": "expression", "value": "$ctx.data.raw"}},
+        )
+    ),
     "transform": FunctionNode(
-        transform,
-        name="transform",
-        inputs="$ctx.data.raw",
-        outputs="$ctx.data.normalized",
+        config=NodeConfig(
+            name="transform",
+            setting={"callable": {"type": "string", "value": f"{__name__}.transform"}},
+            inputs={"payload": {"type": "expression", "value": "$ctx.data.raw"}},
+            outputs={
+                "normalized": {"type": "expression", "value": "$ctx.data.normalized"}
+            },
+        )
     ),
     "load": FunctionNode(
-        load,
-        name="load",
-        inputs="$ctx.data.normalized",
-        outputs="$ctx.data.persisted",
+        config=NodeConfig(
+            name="load",
+            setting={"callable": {"type": "string", "value": f"{__name__}.load"}},
+            inputs={
+                "payload": {"type": "expression", "value": "$ctx.data.normalized"}
+            },
+            outputs={
+                "persisted": {"type": "expression", "value": "$ctx.data.persisted"}
+            },
+        )
     ),
 }
 
@@ -116,7 +132,7 @@ print(context["data"]["persisted"])
 ### Payload vs Context
 - Flow resolves each node's `payload` from the declared `inputs`.
 - Nodes return the next `payload`; Flow stores it under `context["payloads"][node_id]` and writes to the paths declared in `outputs`.
-- Treat the payload as the primary contract. Only nodes created with `allow_context_access=True` can reach the shared dictionary (e.g., for metrics via `context.setdefault("metrics", {})`); everyone else operates purely on payloads.
+- Treat the payload as the primary contract. When a callable needs shared state, use `self.request_context()` during execution and document the keys you mutate (e.g., `context.setdefault("metrics", {})`).
 
 ### Branching
 - To route dynamically, return a dictionary mapping successor identifiers to payloads (e.g. `{"approve": payload}`). Only the listed successors are executed.
@@ -140,7 +156,7 @@ Refer to `docs/test_checklist.md` for the live checklist.
 
 ## Highlights
 - DSL edges such as `A >> B`, `(A & B) >> C`
-- Payload-first callable interface（`allow_context_access=True` を指定したノードのみ共有コンテキストへ明示アクセス）
+- Payload-first callable interface（共有コンテキストへアクセスする場合は `request_context()` で明示的に扱う）
 - LoopNode for per-item iteration (self edge `loop >> loop` + body route `loop >> worker`)
 - Branching via returned mappings (e.g. `{successor: payload}`)
 - Built-in join handling (nodes with multiple parents automatically wait for all inputs)
