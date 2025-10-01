@@ -59,11 +59,16 @@ def get_llm(
     base_url: Optional[str] = None,
     **kwargs: Any,
 ) -> Any:
-    normalized_base_url = _normalize_llm_base_url(base_url)
     runtime = FlowRuntime.current()
-    llm = runtime.get_llm(provider, model, base_url=normalized_base_url, **kwargs)
-    if normalized_base_url:
-        _apply_normalized_base_url(llm, normalized_base_url)
+    llm = runtime.get_llm(provider, model, base_url=base_url, **kwargs)
+    if base_url:
+        provider_marker = getattr(llm, "_illumo_provider", (provider or "openai").lower())
+        if provider_marker == "openai":
+            normalized_url = base_url.rstrip("/")
+        else:
+            normalized_url = _normalize_llm_base_url(base_url)
+        if normalized_url:
+            _apply_normalized_base_url(llm, normalized_url)
     return llm
 
 
@@ -71,4 +76,3 @@ __all__ = [
     "FlowRuntime",
     "get_llm",
 ]
-

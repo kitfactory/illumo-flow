@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import importlib
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, Mapping, Optional, Sequence
+from types import SimpleNamespace
+from typing import Any, Callable, Dict, Mapping, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -13,73 +12,19 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # noqa: BLE001 - optional import failure
     OpenAI = None  # type: ignore[assignment]
 
-try:  # pragma: no cover - optional dependency
-    from anthropic import Anthropic
-except Exception:  # noqa: BLE001 - optional import failure
-    Anthropic = None  # type: ignore[assignment]
-
-
-def _try_import(name: str) -> Any:
-    """Best-effort dynamic import returning ``None`` on failure."""
-
-    try:
-        return importlib.import_module(name)
-    except Exception:  # noqa: BLE001 - optional import failure
-        return None
-
-
-_GOOGLE_GENAI = _try_import("google.generativeai")
-
-
-@dataclass(slots=True)
-class SimpleLLMClient:
-    """Lightweight handle that keeps provider metadata and optional SDK client."""
-
-    provider: str
-    model: str
-    base_url: Optional[str] = None
-    client: Any = None
-
-    def complete(
-        self,
-        prompt: str,
-        *,
-        conversation: Optional[Sequence[Mapping[str, Any]]] = None,
-        metadata: Optional[Mapping[str, Any]] = None,
-        **_: Any,
-    ) -> dict[str, Any]:
-        history_preview = conversation[-1]["content"] if conversation else None
-        response = prompt if prompt is not None else ""
-        meta: dict[str, Any] = {
-            "provider": self.provider,
-            "model": self.model,
-        }
-        if self.base_url:
-            meta["base_url"] = self.base_url
-        if metadata:
-            meta.update(dict(metadata))
-        result: dict[str, Any] = {
-            "response": response,
-            "metadata": meta,
-        }
-        if history_preview is not None:
-            history = list(conversation or []) + [
-                {"role": "assistant", "content": response}
-            ]
-            result["history"] = history
-        return result
-
-
 def _default_llm_factory(
     *,
     provider: Optional[str],
     model: str,
     base_url: Optional[str] = None,
     **kwargs: Any,
-) -> SimpleLLMClient:
+) -> Any:
     resolved_provider = _resolve_provider(provider, model, base_url, kwargs)
-    builder = _PROVIDER_BUILDERS.get(resolved_provider, _build_openai_client)
-    return builder(model=model, base_url=base_url, options=kwargs)
+    builder = _PROVIDER_BUILDERS.get(resolved_provider)
+    if builder is None:
+        raise ValueError(f"Unsupported LLM provider '{resolved_provider}'")
+    normalized_base_url = _determine_base_url(resolved_provider, base_url)
+    return builder(model=model, base_url=normalized_base_url, options=kwargs)
 
 
 def _normalize_llm_base_url(base_url: Optional[str]) -> Optional[str]:
@@ -125,6 +70,14 @@ def _apply_normalized_base_url(llm: Any, base_url: str) -> None:
             pass
 
 
+def _determine_base_url(provider: str, base_url: Optional[str]) -> Optional[str]:
+    if base_url is None:
+        return None if provider == "openai" else None
+    if provider == "openai":
+        return base_url.rstrip("/") or None
+    return _normalize_llm_base_url(base_url)
+
+
 def _resolve_provider(
     provider: Optional[str],
     model: str,
@@ -152,39 +105,91 @@ def _resolve_provider(
     return "openai"
 
 
-def _build_openai_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> SimpleLLMClient:
+def _ensure_openai() -> Any:
+    if OpenAI is None:
+        class _FallbackOpenAI:  # pragma: no cover - exercised via unit tests only
+            def __init__(self, **kwargs: Any) -> None:
+                self._kwargs = dict(kwargs)
+                self.base_url = kwargs.get("base_url")
+                self.responses = SimpleNamespace(create=self._not_available)
+                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._not_available))
+
+            def _not_available(self, *args: Any, **kwargs: Any) -> None:
+                raise RuntimeError("OpenAI SDK is required for actual LLM calls")
+
+        return _FallbackOpenAI
+    return OpenAI
+
+
+def _set_metadata(client: Any, *, provider: str, model: str, base_url: Optional[str]) -> Any:
+    setattr(client, "_illumo_provider", provider)
+    setattr(client, "_illumo_model", model)
+    if base_url is not None and not getattr(client, "base_url", None):
+        setattr(client, "base_url", base_url)
+    return client
+
+
+def _build_openai_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> Any:
     client = None
-    if OpenAI is not None:
-        client = OpenAI(base_url=base_url, **options)
-    return SimpleLLMClient(provider="openai", model=model, base_url=base_url, client=client)
+    openai_cls = _ensure_openai()
+    kw = dict(options)
+    if base_url:
+        kw["base_url"] = base_url
+    client = openai_cls(**kw)
+    return _set_metadata(client, provider="openai", model=model, base_url=base_url)
 
 
-def _build_anthropic_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> SimpleLLMClient:
-    client = Anthropic(**options) if Anthropic is not None else None
-    return SimpleLLMClient(provider="anthropic", model=model, base_url=base_url, client=client)
+def _build_anthropic_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> Any:
+    if base_url is None:
+        raise ValueError("Anthropic provider requires a base_url for the OpenAI-compatible endpoint")
+    openai_cls = _ensure_openai()
+    kw = dict(options)
+    kw["base_url"] = base_url
+    client = openai_cls(**kw)
+    return _set_metadata(client, provider="anthropic", model=model, base_url=base_url)
 
 
-def _build_google_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> SimpleLLMClient:
-    client = None
-    if _GOOGLE_GENAI is not None:
-        _GOOGLE_GENAI.configure(**{k: v for k, v in options.items() if k != "provider"})
-        client = _GOOGLE_GENAI
-    return SimpleLLMClient(provider="google", model=model, base_url=base_url, client=client)
+def _build_google_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> Any:
+    if base_url is None:
+        raise ValueError("Google provider requires a base_url for the OpenAI-compatible endpoint")
+    openai_cls = _ensure_openai()
+    kw = dict(options)
+    kw["base_url"] = base_url
+    client = openai_cls(**kw)
+    return _set_metadata(client, provider="google", model=model, base_url=base_url)
 
 
-def _build_lmstudio_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> SimpleLLMClient:
-    return SimpleLLMClient(provider="lmstudio", model=model, base_url=base_url, client=None)
+def _build_lmstudio_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> Any:
+    if base_url is None:
+        raise ValueError("LMStudio provider requires a base_url for the OpenAI-compatible endpoint")
+    openai_cls = _ensure_openai()
+    kw = dict(options)
+    kw["base_url"] = base_url
+    client = openai_cls(**kw)
+    return _set_metadata(client, provider="lmstudio", model=model, base_url=base_url)
 
 
-def _build_ollama_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> SimpleLLMClient:
-    return SimpleLLMClient(provider="ollama", model=model, base_url=base_url, client=None)
+def _build_ollama_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> Any:
+    if base_url is None:
+        raise ValueError("Ollama provider requires a base_url for the OpenAI-compatible endpoint")
+    openai_cls = _ensure_openai()
+    kw = dict(options)
+    kw["base_url"] = base_url
+    client = openai_cls(**kw)
+    return _set_metadata(client, provider="ollama", model=model, base_url=base_url)
 
 
-def _build_openrouter_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> SimpleLLMClient:
-    return SimpleLLMClient(provider="openrouter", model=model, base_url=base_url, client=None)
+def _build_openrouter_client(*, model: str, base_url: Optional[str], options: Mapping[str, Any]) -> Any:
+    if base_url is None:
+        raise ValueError("OpenRouter provider requires a base_url for the OpenAI-compatible endpoint")
+    openai_cls = _ensure_openai()
+    kw = dict(options)
+    kw["base_url"] = base_url
+    client = openai_cls(**kw)
+    return _set_metadata(client, provider="openrouter", model=model, base_url=base_url)
 
 
-_PROVIDER_BUILDERS: Dict[str, Callable[..., SimpleLLMClient]] = {
+_PROVIDER_BUILDERS: Dict[str, Callable[..., Any]] = {
     "openai": _build_openai_client,
     "anthropic": _build_anthropic_client,
     "google": _build_google_client,
@@ -195,9 +200,9 @@ _PROVIDER_BUILDERS: Dict[str, Callable[..., SimpleLLMClient]] = {
 
 
 __all__ = [
-    "SimpleLLMClient",
     "_default_llm_factory",
     "_normalize_llm_base_url",
     "_apply_normalized_base_url",
+    "_determine_base_url",
     "_resolve_provider",
 ]
