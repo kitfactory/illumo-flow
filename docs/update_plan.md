@@ -31,12 +31,12 @@
 - [x] `OtelTracer` テストを実行してパスさせ、チェックリストを更新する
 
 ## Policy 機能実装とテスト
-- [ ] グローバル `Policy` モデルと FlowRuntime 連携を実装し、fail_fast/timeout/retry/on_error の合成順序を確立する
-- [ ] Policy の基礎テスト（デフォルト fail_fast、および FlowRuntime.configure による上書き）を追加し、docs/test_checklist.md に追記する
-- [ ] Policy テストを実行してパスさせ、チェックリストを更新する
-- [ ] ノード個別ポリシーの上書きロジックを実装し、Flow 全体より優先されることを確認する
-- [ ] ノード個別ポリシーを検証するテストを追加し、docs/test_checklist.md に登録する
-- [ ] ノード個別ポリシーのテストを実行してパスさせ、チェックリストを更新する
+- [x] グローバル `Policy` モデルと FlowRuntime 連携を実装し、fail_fast/timeout/retry/on_error の合成順序を確立する
+- [x] Policy の基礎テスト（デフォルト fail_fast、および FlowRuntime.configure による上書き）を追加し、docs/test_checklist.md に追記する
+- [x] Policy テストを実行してパスさせ、チェックリストを更新する
+- [x] ノード個別ポリシーの上書きロジックを実装し、Flow 全体より優先されることを確認する
+- [x] ノード個別ポリシーを検証するテストを追加し、docs/test_checklist.md に登録する
+- [x] ノード個別ポリシーのテストを実行してパスさせ、チェックリストを更新する
 
 ## ドキュメント・運用整備
 - [ ] README.md / README_ja.md に新版の Agent/Tracer/Policy 使い方を反映する
