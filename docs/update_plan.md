@@ -39,6 +39,6 @@
 - [x] ノード個別ポリシーのテストを実行してパスさせ、チェックリストを更新する
 
 ## ドキュメント・運用整備
-- [ ] README.md / README_ja.md に新版の Agent/Tracer/Policy 使い方を反映する
+- [x] README.md / README_ja.md に新版の Agent/Tracer/Policy 使い方を反映する
 - [ ] docs/update_requirement.md・tutorial 系ドキュメントを実装内容に合わせて更新し、`>>` DSL や FlowRuntime の既定挙動を明文化する
 - [ ] 変更後の CLI フロー（Tracer 切替や Policy 指定）を手動確認し、docs/test_checklist.md に手動確認用のチェック項目を追加する
