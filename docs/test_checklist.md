@@ -19,3 +19,5 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_flow_examples.py::test_callable_resolved_from_context_expression — Exercises dynamic callable lookup from context
 - [x] tests/test_flow_examples.py::test_function_node_returning_routing_is_rejected — Asserts FunctionNode rejects Routing return values
 - [x] tests/test_flow_examples.py::test_loop_node_iterates_over_sequence — Verifies loop nodes advance through iterable payloads
+- [x] tests/test_flow_examples.py::test_get_llm_appends_v1_suffix_when_missing — Ensures OpenAI-compatible hosts gain the `/v1` suffix automatically
+- [x] tests/test_flow_examples.py::test_get_llm_keeps_existing_v1_suffix — Confirms existing `/v1`-suffixed base URLs remain unchanged

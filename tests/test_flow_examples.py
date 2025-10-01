@@ -14,17 +14,40 @@ for candidate in (SRC, ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
+sys.modules.setdefault("tests.test_flow_examples", sys.modules[__name__])
+
 from illumo_flow import (
     Flow,
     FlowError,
+    FlowRuntime,
     FunctionNode,
     LoopNode,
+    Policy,
     Routing,
     CustomRoutingNode,
     NodeConfig,
 )
+from illumo_flow.core import get_llm
 from examples import ops
 from examples.sample_flows import EXAMPLE_FLOWS
+
+
+RETRY_STATE: Dict[str, int] = {"count": 0}
+
+
+def fn_policy_retry(payload: Any) -> str:
+    RETRY_STATE["count"] += 1
+    if RETRY_STATE["count"] < 2:
+        raise RuntimeError("retry me")
+    return "recovered"
+
+
+def fn_policy_fail(_payload: Any) -> str:
+    raise RuntimeError("boom")
+
+
+def fn_policy_recover(payload: Any) -> str:
+    return f"recovered:{payload}"
 
 
 def fn_identity(payload: Any) -> Any:
@@ -380,3 +403,149 @@ def test_loop_node_iterates_over_sequence():
         {"item": "c", "index": 2},
     ]
     assert ctx["payloads"]["worker"] == {"item": "c", "index": 2}
+
+
+def test_policy_retry_recovers(monkeypatch):
+    RETRY_STATE["count"] = 0
+
+    retry_node = FunctionNode(
+        config=NodeConfig(
+            name="RetryNode",
+            setting={
+                "callable": {"type": "string", "value": "tests.test_flow_examples.fn_policy_retry"},
+                "policy": {
+                    "type": "mapping",
+                    "value": {"retry": {"max_attempts": 2, "delay": 0}},
+                },
+            },
+        )
+    )
+    flow = Flow.from_dsl(nodes={"Retry": retry_node}, entry="Retry", edges=[])
+
+    previous_runtime = FlowRuntime.current()
+    FlowRuntime.configure(
+        tracer=previous_runtime.tracer,
+        policy=Policy(),
+        llm_factory=previous_runtime.llm_factory,
+    )
+    try:
+        ctx: Dict[str, Any] = {}
+        flow.run(ctx)
+    finally:
+        FlowRuntime.configure(
+            tracer=previous_runtime.tracer,
+            policy=previous_runtime.policy,
+            llm_factory=previous_runtime.llm_factory,
+        )
+
+    assert ctx["payloads"]["Retry"] == "recovered"
+    assert RETRY_STATE["count"] == 2
+
+
+def test_policy_on_error_continue_moves_forward():
+    fail_node = FunctionNode(
+        config=NodeConfig(
+            name="Fail",
+            setting={
+                "callable": {"type": "string", "value": "tests.test_flow_examples.fn_policy_fail"},
+                "policy": {
+                    "type": "mapping",
+                    "value": {"on_error": {"action": "continue"}},
+                },
+            },
+        )
+    )
+    success_node = FunctionNode(
+        config=NodeConfig(
+            name="Success",
+            setting={
+                "callable": {"type": "string", "value": "tests.test_flow_examples.fn_identity"},
+                "outputs": {"type": "string", "value": "data.ok"},
+            },
+        )
+    )
+    flow = Flow.from_dsl(
+        nodes={"Fail": fail_node, "Success": success_node},
+        entry="Fail",
+        edges=["Fail >> Success"],
+    )
+
+    previous_runtime = FlowRuntime.current()
+    FlowRuntime.configure(
+        tracer=previous_runtime.tracer,
+        policy=Policy(fail_fast=False),
+        llm_factory=previous_runtime.llm_factory,
+    )
+    try:
+        ctx: Dict[str, Any] = {"data": {"ok": "initial"}}
+        flow.run(ctx)
+    finally:
+        FlowRuntime.configure(
+            tracer=previous_runtime.tracer,
+            policy=previous_runtime.policy,
+            llm_factory=previous_runtime.llm_factory,
+        )
+
+    assert ctx["data"]["ok"] == "initial"
+    fail_steps = [step for step in ctx["steps"] if step["node_id"] == "Fail"]
+    assert any(step.get("status") == "failed" for step in fail_steps)
+    assert any(step.get("status") == "continue" for step in fail_steps)
+
+
+def test_policy_on_error_goto_routes_to_target():
+    fail_node = FunctionNode(
+        config=NodeConfig(
+            name="Primary",
+            setting={
+                "callable": {"type": "string", "value": "tests.test_flow_examples.fn_policy_fail"},
+                "policy": {
+                    "type": "mapping",
+                    "value": {"on_error": {"action": "goto", "target": "Recover"}},
+                },
+            },
+        )
+    )
+    recover_node = FunctionNode(
+        config=NodeConfig(
+            name="Recover",
+            setting={
+                "callable": {"type": "string", "value": "tests.test_flow_examples.fn_policy_recover"},
+                "outputs": {"type": "string", "value": "data.recover"},
+            },
+        )
+    )
+    flow = Flow.from_dsl(
+        nodes={"Primary": fail_node, "Recover": recover_node},
+        entry="Primary",
+        edges=["Primary >> Recover"],
+    )
+
+    previous_runtime = FlowRuntime.current()
+    FlowRuntime.configure(
+        tracer=previous_runtime.tracer,
+        policy=Policy(),
+        llm_factory=previous_runtime.llm_factory,
+    )
+    try:
+        ctx: Dict[str, Any] = {}
+        flow.run(ctx)
+    finally:
+        FlowRuntime.configure(
+            tracer=previous_runtime.tracer,
+            policy=previous_runtime.policy,
+            llm_factory=previous_runtime.llm_factory,
+        )
+
+    assert ctx["payloads"]["Recover"] == "recovered:None"
+    goto_steps = [step for step in ctx["steps"] if step["node_id"] == "Primary"]
+    assert any(step.get("status") == "goto" for step in goto_steps)
+
+
+def test_get_llm_appends_v1_suffix_when_missing():
+    client = get_llm("lmstudio", "dummy-model", base_url="http://localhost:1234")
+    assert getattr(client, "base_url", None) == "http://localhost:1234/v1"
+
+
+def test_get_llm_keeps_existing_v1_suffix():
+    client = get_llm("openai", "dummy-model", base_url="http://localhost:1234/v1")
+    assert getattr(client, "base_url", None) == "http://localhost:1234/v1"

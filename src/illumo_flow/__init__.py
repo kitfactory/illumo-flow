@@ -11,9 +11,17 @@ from .core import (
     CustomRoutingNode,
     RoutingNode,
 )
+from .policy import OnError, Policy, Retry
+from .runtime import FlowRuntime, get_llm
+from .tracing import ConsoleTracer, OtelTracer, SQLiteTracer
 
 __all__ = [
     "Flow",
+    "FlowRuntime",
+    "get_llm",
+    "Policy",
+    "Retry",
+    "OnError",
     "Node",
     "FunctionNode",
     "NodeConfig",
@@ -22,4 +30,7 @@ __all__ = [
     "LoopNode",
     "Routing",
     "FlowError",
+    "ConsoleTracer",
+    "SQLiteTracer",
+    "OtelTracer",
 ]

@@ -19,3 +19,5 @@
 - [x] tests/test_flow_examples.py::test_callable_resolved_from_context_expression — コンテキストから動的にコール可能を取得する処理を確認
 - [x] tests/test_flow_examples.py::test_function_node_returning_routing_is_rejected — FunctionNode が Routing 返却を拒否することを検証
 - [x] tests/test_flow_examples.py::test_loop_node_iterates_over_sequence — ループノードがイテラブルを順に処理することを確認
+- [x] tests/test_flow_examples.py::test_get_llm_appends_v1_suffix_when_missing — OpenAI互換ホストに自動で`/v1`サフィックスを付与することを確認
+- [x] tests/test_flow_examples.py::test_get_llm_keeps_existing_v1_suffix — 既に`/v1`が付与されたbase URLが変更されないことを確認

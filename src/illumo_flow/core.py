@@ -2,18 +2,34 @@
 
 from __future__ import annotations
 
+import concurrent.futures as futures
 import json
 import os
 import re
+import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Set, Tuple, Union
 
+from .policy import (
+    OnError,
+    Policy,
+    Retry,
+    _clone_policy,
+    _merge_policy,
+    _parse_duration_seconds,
+    _record_node_error,
+)
+from .runtime import FlowRuntime, get_llm
+from .tracing import ConsoleTracer, OtelTracer, SQLiteTracer, _emit_tracer_event
+
 
 _TEMPLATE_PATTERN = re.compile(r"\{\{\s*(.+?)\s*\}\}")
 _EXPRESSION_PREFIXES = ("ctx", "payload", "joins", "env")
+
+
 
 
 @dataclass(frozen=True)
@@ -397,6 +413,7 @@ class Node:
         self._node_id: Optional[str] = None
         self._active_context: Optional[MutableMapping[str, Any]] = None
         self._config = config
+        self._policy_override = config.setting_value("policy")
 
     # --- Lifecycle helpers -------------------------------------------------
 
@@ -467,6 +484,9 @@ class Node:
         if self._active_context is None:
             raise FlowError("Context is only available during active node execution")
         return self._active_context
+
+    def policy_override(self) -> Any:
+        return self._policy_override
 
 
 class RoutingNode(Node):
@@ -1136,9 +1156,16 @@ class Flow:
 
     # ------------------------------------------------------------------
     def run(self, context: Optional[MutableMapping[str, Any]] = None, user_input: Any = None) -> Any:
+        runtime = FlowRuntime.current()
         context = _ensure_context(context)
+        context.setdefault("runtime", runtime)
         payloads: MutableMapping[str, Any] = context.setdefault("payloads", {})
         payloads.setdefault(self.entry_id, user_input)
+
+        tracer = getattr(runtime, "tracer", None)
+        if tracer is None:
+            tracer = ConsoleTracer()
+            runtime.tracer = tracer
 
         ready = deque([self.entry_id])
         remaining = dict(self.dependency_counts)
@@ -1149,170 +1176,207 @@ class Flow:
         max_steps = int(max_steps_env) if max_steps_env else None
         step_counter = 0
         iteration = 0
-        while ready:
-            iteration += 1
-            if iteration % 100 == 0:
-                print(f"[Flow] iteration={iteration} queue={list(ready)}", flush=True)
-            if max_steps is not None and step_counter >= max_steps:
-                print(f"[Flow] debug break after {step_counter} steps", flush=True)
-                break
-            step_counter += 1
-            node_id = ready.popleft()
-            in_queue.discard(node_id)
 
-            if node_id in completed:
-                continue
+        _emit_tracer_event(tracer, "flow_start", flow=self, context=context)
 
-            if remaining.get(node_id, 0) > 0:
-                # Not ready yet; requeue and continue
-                ready.append(node_id)
-                in_queue.add(node_id)
-                continue
+        try:
+            while ready:
+                iteration += 1
+                if iteration % 100 == 0:
+                    print(f"[Flow] iteration={iteration} queue={list(ready)}", flush=True)
+                if max_steps is not None and step_counter >= max_steps:
+                    print(f"[Flow] debug break after {step_counter} steps", flush=True)
+                    break
+                step_counter += 1
+                node_id = ready.popleft()
+                in_queue.discard(node_id)
 
-            node = self.nodes[node_id]
-            print(
-                f"[Flow] executing node={node_id} ready={list(ready)} "
-                f"remaining={remaining.get(node_id,0)}",
-                flush=True,
-            )
-            context["steps"].append({"node_id": node_id, "status": "start"})
-
-            input_payload = payloads.get(node_id)
-            if getattr(node, "_inputs", None):
-                resolved_inputs: Dict[str, Any] = {}
-                for alias, expr in node._inputs:
-                    resolved_inputs[alias] = _evaluate_expression(context, expr)
-                if len(node._inputs) == 1:
-                    input_payload = next(iter(resolved_inputs.values()))
-                else:
-                    input_payload = resolved_inputs
-            try:
-                raw_result = node._execute(input_payload, context)
-            except Exception as exc:
-                error_record = {
-                    "node_id": node_id,
-                    "exception": exc.__class__.__name__,
-                    "message": str(exc),
-                }
-                context["errors"].append(error_record)
-                context["failed_node_id"] = node_id
-                context["failed_exception_type"] = exc.__class__.__name__
-                context["failed_message"] = str(exc)
-                context["steps"].append({"node_id": node_id, "status": "failed", "message": str(exc)})
-                raise
-
-            routing_entries: Optional[List[Tuple[Routing, Any]]] = None
-            branch_payloads: Optional[Dict[str, Any]] = None
-            if isinstance(node, RoutingNode):
-                routing_entries = node._ensure_routing(raw_result)
-                branch_payloads = {}
-                recorded_payloads: List[Any] = []
-                for route, override in routing_entries:
-                    payload_for_route = override
-                    if payload_for_route is None:
-                        payload_for_route = input_payload
-                    branch_payloads[route.target] = payload_for_route
-                    recorded_payloads.append(payload_for_route)
-                result_to_store = branch_payloads
-            else:
-                if isinstance(raw_result, Routing):
-                    raise FlowError(
-                        f"Node '{node_id}' returned a Routing result but is not a RoutingNode"
-                    )
-                result_to_store = raw_result
-
-            if result_to_store is None and input_payload is not None:
-                result_to_store = input_payload
-
-            node._set_output(context, result_to_store)
-
-            if routing_entries is not None:
-                context["routing"][node_id] = [route.to_context() for route, _ in routing_entries]
-
-            context["payloads"][node_id] = result_to_store
-            context["steps"].append({"node_id": node_id, "status": "success"})
-            completed.add(node_id)
-            requeue_self = False
-
-            branch_keys: Optional[Set[str]] = None
-            if routing_entries is not None:
-                branch_keys = {route.target for route, _ in routing_entries}
-                if not branch_keys:
-                    print(
-                        f"[Flow] node={node_id} produced empty routing -> stopping successors",
-                        flush=True,
-                    )
+                if node_id in completed:
                     continue
 
-            successors = self._resolve_successors(node, context, branch_keys=branch_keys)
-            if not successors:
-                continue
+                if remaining.get(node_id, 0) > 0:
+                    ready.append(node_id)
+                    in_queue.add(node_id)
+                    continue
 
-            branch_payload_map = branch_payloads or {}
-            if routing_entries is not None:
-                ordered_entries = [entry for entry in routing_entries if entry[0].target in successors]
-                route_iterable: Iterable[Tuple[str, Any]] = (
-                    (route.target, branch_payload_map.get(route.target))
-                    for route, _ in ordered_entries
+                node = self.nodes[node_id]
+                print(
+                    f"[Flow] executing node={node_id} ready={list(ready)} "
+                    f"remaining={remaining.get(node_id,0)}",
+                    flush=True,
                 )
-            else:
-                route_iterable = ((target, result_to_store) for target in successors)
+                context["steps"].append({"node_id": node_id, "status": "start"})
 
-            for target, payload_candidate in route_iterable:
-                print(f"[Flow] enqueue candidate target={target} from node={node_id}", flush=True)
-                if routing_entries is not None and target not in successors:
-                    print(
-                        f"[Flow] skip target={target} not in routing successors",
-                        flush=True,
+                input_payload = payloads.get(node_id)
+                if getattr(node, "_inputs", None):
+                    resolved_inputs: Dict[str, Any] = {}
+                    for alias, expr in node._inputs:
+                        resolved_inputs[alias] = _evaluate_expression(context, expr)
+                    if len(node._inputs) == 1:
+                        input_payload = next(iter(resolved_inputs.values()))
+                    else:
+                        input_payload = resolved_inputs
+
+                combined_policy = self._resolve_policy_for_node(runtime.policy, node)
+
+                _emit_tracer_event(
+                    tracer,
+                    "node_start",
+                    flow=self,
+                    node_id=node_id,
+                    node=node,
+                    payload=input_payload,
+                )
+
+                status, raw_result, goto_target = self._execute_node_with_policy(
+                    node=node,
+                    input_payload=input_payload,
+                    context=context,
+                    policy=combined_policy,
+                    tracer=tracer,
+                )
+
+                if status == "goto":
+                    completed.add(node_id)
+                    context["steps"].append({"node_id": node_id, "status": "goto", "target": goto_target})
+                    self._enqueue_goto(
+                        goto_target,
+                        input_payload,
+                        ready,
+                        in_queue,
+                        remaining,
+                        payloads,
                     )
                     continue
 
-                next_payload = payload_candidate
-                if next_payload is None:
-                    next_payload = input_payload
+                if status not in {"success", "continue"}:
+                    completed.add(node_id)
+                    continue
 
-                remaining[target] = remaining.get(target, self.parent_counts[target])
-                remaining[target] = max(0, remaining[target] - 1)
+                result_to_store = raw_result
+                if status == "continue" and result_to_store is None:
+                    result_to_store = input_payload
 
-                parent_count = self.parent_counts.get(target, 0)
-                if parent_count > 1:
-                    joins_map = context.setdefault("joins", {})
-                    join_entry = joins_map.setdefault(target, {})
-                    join_entry[node_id] = next_payload
-                    join_buffers[target][node_id] = next_payload
-                    if len(join_buffers[target]) == parent_count:
-                        ordered_parents = self.parent_order.get(target, tuple(join_buffers[target].keys()))
-                        aggregated = {
-                            parent: join_buffers[target][parent]
-                            for parent in ordered_parents
-                            if parent in join_buffers[target]
-                        }
-                        context["payloads"][target] = aggregated
-                        joins_map[target] = aggregated
-                        join_buffers[target].clear()
+                if result_to_store is None and input_payload is not None:
+                    result_to_store = input_payload
+
+                routing_entries: Optional[List[Tuple[Routing, Any]]] = None
+                branch_payloads: Optional[Dict[str, Any]] = None
+                if isinstance(node, RoutingNode):
+                    routing_entries = node._ensure_routing(result_to_store)
+                    branch_payloads = {}
+                    for route, override in routing_entries:
+                        payload_for_route = override if override is not None else input_payload
+                        branch_payloads[route.target] = payload_for_route
+                    store_value = branch_payloads
                 else:
-                    context["payloads"][target] = next_payload
+                    if isinstance(result_to_store, Routing):
+                        raise FlowError(
+                            f"Node '{node_id}' returned a Routing result but is not a RoutingNode"
+                        )
+                    store_value = result_to_store
 
-                if target in completed:
-                    completed.discard(target)  # Allow re-execution when new payload arrives/新しいペイロードで再実行できるよう完了状態を解除
+                node._set_output(context, store_value)
 
-                if remaining[target] == 0 and target not in completed and target not in in_queue:
-                    print(f"[Flow] append target={target} to ready queue", flush=True)
-                    ready.append(target)
-                    in_queue.add(target)
+                if routing_entries is not None:
+                    context["routing"][node_id] = [
+                        route.to_context() for route, _ in routing_entries
+                    ]
 
-                if target == node_id and (branch_keys is None or node_id not in branch_keys):
-                    requeue_self = True
+                context["payloads"][node_id] = store_value
+                context["steps"].append({"node_id": node_id, "status": status})
+                completed.add(node_id)
 
-            if requeue_self:
-                completed.discard(node_id)
-                ready.append(node_id)
-                in_queue.add(node_id)
+                _emit_tracer_event(
+                    tracer,
+                    "node_end",
+                    flow=self,
+                    node_id=node_id,
+                    node=node,
+                    result=store_value,
+                )
 
-            print(
-                f"[Flow] end iteration ready={list(ready)} completed={completed}",
-                flush=True,
-            )
+                branch_keys: Optional[Set[str]] = None
+                if routing_entries is not None:
+                    branch_keys = {route.target for route, _ in routing_entries}
+                    if not branch_keys:
+                        print(
+                            f"[Flow] node={node_id} produced empty routing -> stopping successors",
+                            flush=True,
+                        )
+                        continue
+
+                successors = self._resolve_successors(node, context, branch_keys=branch_keys)
+                if not successors:
+                    continue
+
+                branch_payload_map = branch_payloads or {}
+                if routing_entries is not None:
+                    ordered_entries = [
+                        entry for entry in routing_entries if entry[0].target in successors
+                    ]
+                    route_iterable: Iterable[Tuple[str, Any]] = (
+                        (route.target, branch_payload_map.get(route.target))
+                        for route, _ in ordered_entries
+                    )
+                else:
+                    route_iterable = ((target, store_value) for target in successors)
+
+                for target, payload_candidate in route_iterable:
+                    print(
+                        f"[Flow] enqueue candidate target={target} from node={node_id}",
+                        flush=True,
+                    )
+                    if routing_entries is not None and target not in successors:
+                        print(
+                            f"[Flow] skip target={target} not in routing successors",
+                            flush=True,
+                        )
+                        continue
+
+                    next_payload = payload_candidate if payload_candidate is not None else store_value
+
+                    remaining[target] = remaining.get(target, self.parent_counts[target])
+                    remaining[target] = max(0, remaining[target] - 1)
+
+                    parent_count = self.parent_counts.get(target, 0)
+                    if parent_count > 1:
+                        joins_map = context.setdefault("joins", {})
+                        join_entry = joins_map.setdefault(target, {})
+                        join_entry[node_id] = next_payload
+                        join_buffers[target][node_id] = next_payload
+                        if len(join_buffers[target]) == parent_count:
+                            ordered_parents = self.parent_order.get(
+                                target, tuple(join_buffers[target].keys())
+                            )
+                            aggregated = {
+                                parent: join_buffers[target][parent]
+                                for parent in ordered_parents
+                                if parent in join_buffers[target]
+                            }
+                            context["payloads"][target] = aggregated
+                            joins_map[target] = aggregated
+                            join_buffers[target].clear()
+                    else:
+                        context["payloads"][target] = next_payload
+
+                    if target in completed:
+                        completed.discard(target)
+
+                    if remaining[target] == 0 and target not in completed and target not in in_queue:
+                        print(f"[Flow] append target={target} to ready queue", flush=True)
+                        ready.append(target)
+                        in_queue.add(target)
+
+                print(
+                    f"[Flow] end iteration ready={list(ready)} completed={completed}",
+                    flush=True,
+                )
+        except Exception as exc:
+            _emit_tracer_event(tracer, "flow_error", flow=self, error=exc)
+            raise
+        finally:
+            _emit_tracer_event(tracer, "flow_end", flow=self, context=context)
 
         return context
 
@@ -1337,3 +1401,114 @@ class Flow:
             return branch_keys
 
         return set(allowed)
+
+
+    def _resolve_policy_for_node(self, runtime_policy: Policy, node: Node) -> Policy:
+        base_policy = _clone_policy(runtime_policy)
+        override = node.policy_override() if hasattr(node, "policy_override") else None
+        return _merge_policy(base_policy, override)
+
+    def _execute_node_with_policy(
+        self,
+        *,
+        node: Node,
+        input_payload: Any,
+        context: MutableMapping[str, Any],
+        policy: Policy,
+        tracer: Any,
+    ) -> Tuple[str, Any, Optional[str]]:
+        attempts = 0
+        delay = max(policy.retry.delay, 0.0)
+        while True:
+            try:
+                result = self._call_with_timeout(node, input_payload, context, policy.timeout)
+                return "success", result, None
+            except Exception as exc:
+                attempts += 1
+                should_retry = policy.retry.max_attempts > 0 and attempts <= policy.retry.max_attempts
+                if should_retry:
+                    _emit_tracer_event(
+                        tracer,
+                        "node_error",
+                        flow=self,
+                        node_id=node.node_id,
+                        node=node,
+                        error=exc,
+                    )
+                    if delay > 0:
+                        time.sleep(delay)
+                        if policy.retry.mode == "exponential" and delay > 0:
+                            delay *= 2
+                    continue
+                return self._handle_node_error(node, input_payload, context, policy, tracer, exc)
+
+    def _call_with_timeout(
+        self,
+        node: Node,
+        input_payload: Any,
+        context: MutableMapping[str, Any],
+        timeout: str,
+    ) -> Any:
+        timeout_seconds = _parse_duration_seconds(timeout)
+        if timeout_seconds <= 0:
+            return node._execute(input_payload, context)
+        with futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(node._execute, input_payload, context)
+            try:
+                return future.result(timeout=timeout_seconds)
+            except futures.TimeoutError:
+                future.cancel()
+                raise TimeoutError(
+                    f"Node '{node.node_id}' timed out after {timeout_seconds} seconds"
+                )
+
+    def _handle_node_error(
+        self,
+        node: Node,
+        input_payload: Any,
+        context: MutableMapping[str, Any],
+        policy: Policy,
+        tracer: Any,
+        exc: BaseException,
+    ) -> Tuple[str, Any, Optional[str]]:
+        _record_node_error(context, node.node_id, exc)
+        _emit_tracer_event(
+            tracer,
+            "node_error",
+            flow=self,
+            node_id=node.node_id,
+            node=node,
+            error=exc,
+        )
+        action = (policy.on_error.action if policy.on_error else "stop").lower()
+        if action == "stop" and policy.fail_fast:
+            raise exc
+        if action == "stop":
+            action = "continue"
+        if action == "continue":
+            return "continue", input_payload, None
+        if action == "goto":
+            target = policy.on_error.target if policy.on_error else None
+            if not target:
+                raise FlowError("on_error 'goto' requires a target node identifier") from exc
+            if target not in self.nodes:
+                raise FlowError(f"on_error target '{target}' is not a valid node") from exc
+            return "goto", None, target
+        if not policy.fail_fast:
+            return "continue", input_payload, None
+        raise exc
+
+    def _enqueue_goto(
+        self,
+        target: str,
+        payload: Any,
+        ready: deque,
+        in_queue: Set[str],
+        remaining: MutableMapping[str, int],
+        payloads: MutableMapping[str, Any],
+    ) -> None:
+        remaining[target] = 0
+        payloads[target] = payload
+        if target not in in_queue:
+            ready.appendleft(target)
+            in_queue.add(target)
