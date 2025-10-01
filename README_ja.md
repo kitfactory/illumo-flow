@@ -120,6 +120,62 @@ flow:
 - `illumo_flow.tracing` — Agents SDK 互換の Console／SQLite／OTel トレーサーアダプタ
 - `illumo_flow.llm` — Agent 連携で共有する標準 LLM クライアントヘルパー
 
+### Agent ノード
+- `illumo_flow.nodes.Agent` — `output_path` / `history_path` / `metadata_path` / `structured_path` を使い分けて応答や履歴を保存（未指定時は `ctx.agents.<node_id>` へ格納）
+- `illumo_flow.nodes.RouterAgent` — `choices` で指定した分岐候補から 1 つを選び、理由とともに記録
+- `illumo_flow.nodes.EvaluationAgent` — `target` の内容を評価し、スコア・理由・構造化 JSON を保存
+
+```python
+from illumo_flow import FlowRuntime, Agent, RouterAgent, EvaluationAgent, NodeConfig
+
+FlowRuntime.configure()
+
+ctx = {"request": "テストはすべて成功しました。"}
+
+greeter = Agent(
+    config=NodeConfig(
+        name="Greeter",
+        setting={
+            "model": {"type": "string", "value": "gpt-4.1-nano"},
+            "prompt": {"type": "string", "value": "レビュワーに挨拶してください。"},
+            "output_path": {"type": "string", "value": "$ctx.messages.greeting"},
+        },
+    )
+)
+
+router = RouterAgent(
+    config=NodeConfig(
+        name="Decision",
+        setting={
+            "prompt": {"type": "string", "value": "Context: {{ $ctx.request }}"},
+            "choices": {"type": "sequence", "value": ["Ship", "Refine"]},
+            "output_path": {"type": "string", "value": "$ctx.route.decision"},
+            "metadata_path": {"type": "string", "value": "$ctx.route.reason"},
+        },
+    )
+)
+
+review = EvaluationAgent(
+    config=NodeConfig(
+        name="Review",
+        setting={
+            "prompt": {"type": "string", "value": "'score' と 'reasons' を含む JSON で回答してください。"},
+            "target": {"type": "string", "value": "$ctx.messages.greeting"},
+            "output_path": {"type": "string", "value": "$ctx.metrics.score"},
+            "structured_path": {"type": "string", "value": "$ctx.metrics.details"},
+        },
+    )
+)
+
+greeter.bind("greeter")
+router.bind("decision")
+review.bind("review")
+
+greeter._execute({}, ctx)
+routing = router._execute({}, ctx)
+score = review._execute({}, ctx)
+```
+
 ```python
 from illumo_flow import Flow
 

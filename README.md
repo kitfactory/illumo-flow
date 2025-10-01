@@ -120,6 +120,63 @@ flow:
 - `illumo_flow.tracing` — Console/SQLite/OTel tracer adapters implementing the Agents SDK contract
 - `illumo_flow.llm` — Default LLM client helpers shared across Agent integrations
 
+### Agent Nodes
+- `illumo_flow.nodes.Agent` — renders prompts with context (`ctx.*`) and stores outputs under the configured `output_path` / `history_path` / `metadata_path` / `structured_path` (fallback: `ctx.agents.<node_id>`)
+- `illumo_flow.nodes.RouterAgent` — chooses the next branch from a fixed `choices` list and records the decision plus rationale
+- `illumo_flow.nodes.EvaluationAgent` — evaluates a target resource (`target` expression) and persists scores, reasons and structured JSON payloads
+
+```python
+from illumo_flow import FlowRuntime, Agent, RouterAgent, EvaluationAgent, NodeConfig
+
+# Configure tracer/LLM defaults once
+FlowRuntime.configure()
+
+ctx = {"request": "All tests are green."}
+
+greeter = Agent(
+    config=NodeConfig(
+        name="Greeter",
+        setting={
+            "model": {"type": "string", "value": "gpt-4.1-nano"},
+            "prompt": {"type": "string", "value": "Say hello to the reviewer."},
+            "output_path": {"type": "string", "value": "$ctx.messages.greeting"},
+        },
+    )
+)
+
+router = RouterAgent(
+    config=NodeConfig(
+        name="Decision",
+        setting={
+            "prompt": {"type": "string", "value": "Context: {{ $ctx.request }}"},
+            "choices": {"type": "sequence", "value": ["Ship", "Refine"]},
+            "output_path": {"type": "string", "value": "$ctx.route.decision"},
+            "metadata_path": {"type": "string", "value": "$ctx.route.reason"},
+        },
+    )
+)
+
+review = EvaluationAgent(
+    config=NodeConfig(
+        name="Review",
+        setting={
+            "prompt": {"type": "string", "value": "Return JSON with fields 'score' and 'reasons'."},
+            "target": {"type": "string", "value": "$ctx.messages.greeting"},
+            "output_path": {"type": "string", "value": "$ctx.metrics.score"},
+            "structured_path": {"type": "string", "value": "$ctx.metrics.details"},
+        },
+    )
+)
+
+greeter.bind("greeter")
+router.bind("decision")
+review.bind("review")
+
+greeter._execute({}, ctx)                 # writes greeting to ctx.messages.greeting
+routing = router._execute({}, ctx)        # Routing(target='Ship'| 'Refine', reason='...')
+score = review._execute({}, ctx)          # numeric score or structured JSON field
+```
+
 ### Expressions
 - `$ctx.*` accesses the shared context (e.g. `$ctx.data.raw`). Writing `ctx.*` or the shorthand `$.path` is automatically normalized to the same form.
 - `$payload.*` reads from `context["payloads"]`
