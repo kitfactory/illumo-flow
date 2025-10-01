@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 import textwrap
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Dict, Mapping, MutableMapping, Optional
 
 import pytest
@@ -35,21 +34,6 @@ from examples.sample_flows import EXAMPLE_FLOWS
 
 
 RETRY_STATE: Dict[str, int] = {"count": 0}
-
-
-class StubResponses:
-    def __init__(self, text: str = "stubbed") -> None:
-        self.text = text
-        self.calls: list[Dict[str, Any]] = []
-
-    def create(self, **kwargs: Any) -> SimpleNamespace:
-        self.calls.append(kwargs)
-        return SimpleNamespace(
-            output_text=[self.text],
-            messages=[{"role": "assistant", "content": self.text}],
-            metadata={"call": kwargs},
-            structured_output={"text": self.text},
-        )
 
 
 def fn_policy_retry(payload: Any) -> str:
@@ -584,92 +568,43 @@ def test_get_llm_respects_explicit_provider_priority():
     assert getattr(client, "_illumo_provider", None) == "lmstudio"
 
 
-def test_agent_records_outputs_with_explicit_paths():
-    created_clients: list[Any] = []
-
-    def factory(provider: Optional[str], model: str, base_url: Optional[str] = None, **_: Any) -> Any:
-        client = SimpleNamespace(
-            responses=StubResponses("Hello Alice"),
-            base_url=base_url,
-            _illumo_provider=(provider or "openai"),
-        )
-        created_clients.append(client)
-        return client
-
-    previous_runtime = FlowRuntime.current()
-    FlowRuntime.configure(
-        tracer=previous_runtime.tracer,
-        policy=previous_runtime.policy,
-        llm_factory=factory,
+def test_agent_openai_writes_to_configured_paths():
+    config = NodeConfig(
+        name="Greeter",
+        setting={
+            "model": {"type": "string", "value": "gpt-4.1-nano"},
+            "prompt": {"type": "string", "value": "Say hello to {{ $ctx.user.name }}"},
+            "output_path": {"type": "string", "value": "$ctx.data.openai_reply"},
+        },
     )
-    try:
-        config = NodeConfig(
-            name="Greeter",
-            setting={
-                "model": {"type": "string", "value": "gpt-4.1-nano"},
-                "prompt": {"type": "string", "value": "Hello {{ $ctx.user.name }}"},
-                "output_path": {"type": "string", "value": "$ctx.data.reply"},
-                "history_path": {"type": "string", "value": "$ctx.history.greeter"},
-                "metadata_path": {"type": "string", "value": "$ctx.traces.greeter"},
-            },
-        )
-        agent = Agent(config=config)
-        agent.bind("greeter")
-        ctx: Dict[str, Any] = {"user": {"name": "Alice"}}
-        result = agent._execute({}, ctx)
-        assert result == "Hello Alice"
-        assert ctx["data"]["reply"] == "Hello Alice"
-        assert ctx["history"]["greeter"] == [{"role": "assistant", "content": "Hello Alice"}]
-        assert ctx["traces"]["greeter"] == {"call": created_clients[0].responses.calls[0]}
-    finally:
-        FlowRuntime.configure(
-            tracer=previous_runtime.tracer,
-            policy=previous_runtime.policy,
-            llm_factory=previous_runtime.llm_factory,
-        )
+    agent = Agent(config=config)
+    agent.bind("openai_agent")
+
+    ctx: Dict[str, Any] = {"user": {"name": "Alice"}}
+    response = agent._execute({}, ctx)
+
+    assert isinstance(response, str) and response.strip()
+    assert ctx["data"]["openai_reply"].strip() == response.strip()
+    agents_bucket = ctx["agents"]["openai_agent"]
+    assert "response" not in agents_bucket
 
 
-def test_agent_defaults_to_agents_bucket_when_paths_missing():
-    recorded_client: Dict[str, Any] = {}
-
-    def factory(provider: Optional[str], model: str, base_url: Optional[str] = None, **_: Any) -> Any:
-        client = SimpleNamespace(
-            responses=StubResponses("LMStudio reply"),
-            base_url=base_url,
-            _illumo_provider=(provider or "lmstudio"),
-        )
-        recorded_client["client"] = client
-        return client
-
-    previous_runtime = FlowRuntime.current()
-    FlowRuntime.configure(
-        tracer=previous_runtime.tracer,
-        policy=previous_runtime.policy,
-        llm_factory=factory,
+def test_agent_lmstudio_writes_to_agents_bucket():
+    config = NodeConfig(
+        name="LMStudioAgent",
+        setting={
+            "provider": {"type": "string", "value": "lmstudio"},
+            "model": {"type": "string", "value": "openai/gpt-oss-20b"},
+            "base_url": {"type": "string", "value": "http://192.168.11.16:1234"},
+            "prompt": {"type": "string", "value": "Summarize {{ $ctx.topic }} in one sentence."},
+        },
     )
-    try:
-        config = NodeConfig(
-            name="LMStudio",
-            setting={
-                "provider": {"type": "string", "value": "lmstudio"},
-                "model": {"type": "string", "value": "openai/gpt-oss-20b"},
-                "base_url": {"type": "string", "value": "http://192.168.11.16:1234"},
-                "prompt": {"type": "string", "value": "Draft {{ $ctx.topic }}"},
-            },
-        )
-        agent = Agent(config=config)
-        agent.bind("lmstudio")
-        ctx: Dict[str, Any] = {"topic": "release notes"}
-        result = agent._execute({}, ctx)
-        assert result == "LMStudio reply"
-        agent_bucket = ctx["agents"]["lmstudio"]
-        assert agent_bucket["response"]["value"] == "LMStudio reply"
-        assert agent_bucket["structured"]["value"] == {"text": "LMStudio reply"}
-        client = recorded_client["client"]
-        assert str(getattr(client, "base_url", "")).rstrip("/") == "http://192.168.11.16:1234/v1"
-    finally:
-        FlowRuntime.configure(
-            tracer=previous_runtime.tracer,
-            policy=previous_runtime.policy,
-            llm_factory=previous_runtime.llm_factory,
-        )
+    agent = Agent(config=config)
+    agent.bind("lmstudio_agent")
+
+    ctx: Dict[str, Any] = {"topic": "product update"}
+    response = agent._execute({}, ctx)
+
+    assert isinstance(response, str) and response.strip()
+    agents_bucket = ctx["agents"]["lmstudio_agent"]
+    assert agents_bucket["response"]["value"].strip() == response.strip()

@@ -23,5 +23,5 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_flow_examples.py::test_get_llm_keeps_existing_v1_suffix — Confirms existing `/v1`-suffixed base URLs remain unchanged
 - [x] tests/test_flow_examples.py::test_get_llm_defaults_to_openai_when_unspecified — Verifies provider inference defaults to OpenAI when no hints are given
 - [x] tests/test_flow_examples.py::test_get_llm_respects_explicit_provider_priority — Confirms explicit provider arguments override heuristic ordering
-- [x] tests/test_flow_examples.py::test_agent_records_outputs_with_explicit_paths — Ensures Agent nodes write responses and metadata to configured context paths
-- [x] tests/test_flow_examples.py::test_agent_defaults_to_agents_bucket_when_paths_missing — Confirms Agent nodes fall back to `ctx.agents.<id>` storage when paths are omitted
+- [x] tests/test_flow_examples.py::test_agent_openai_writes_to_configured_paths — Ensures OpenAI-backed Agents write responses to configured context paths
+- [x] tests/test_flow_examples.py::test_agent_lmstudio_writes_to_agents_bucket — Confirms LMStudio-backed Agents store outputs under `ctx.agents.<id>` when paths are omitted

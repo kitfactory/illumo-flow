@@ -23,5 +23,5 @@
 - [x] tests/test_flow_examples.py::test_get_llm_keeps_existing_v1_suffix — 既に`/v1`が付与されたbase URLが変更されないことを確認
 - [x] tests/test_flow_examples.py::test_get_llm_defaults_to_openai_when_unspecified — ヒントがない場合にOpenAIプロバイダへフォールバックすることを確認
 - [x] tests/test_flow_examples.py::test_get_llm_respects_explicit_provider_priority — 明示指定したプロバイダがヒューリスティックより優先されることを確認
-- [x] tests/test_flow_examples.py::test_agent_records_outputs_with_explicit_paths — Agentノードが指定されたパスへ応答・メタデータを書き込むことを確認
-- [x] tests/test_flow_examples.py::test_agent_defaults_to_agents_bucket_when_paths_missing — パス未指定時に`ctx.agents.<id>`へ保存されることを確認
+- [x] tests/test_flow_examples.py::test_agent_openai_writes_to_configured_paths — OpenAIベースのAgentが指定パスへ応答を保存することを確認
+- [x] tests/test_flow_examples.py::test_agent_lmstudio_writes_to_agents_bucket — LMStudioベースのAgentがパス未指定時に`ctx.agents.<id>`へ保存することを確認
