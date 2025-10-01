@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import sqlite3
 import sys
 import textwrap
 from pathlib import Path
@@ -29,6 +31,9 @@ from illumo_flow import (
     Routing,
     CustomRoutingNode,
     NodeConfig,
+    ConsoleTracer,
+    SQLiteTracer,
+    OtelTracer,
 )
 from illumo_flow.core import get_llm
 from examples import ops
@@ -663,3 +668,109 @@ def test_evaluation_agent_records_score_and_metadata():
     metrics_bucket = ctx["metrics"]["review_agent"]
     assert metrics_bucket and "score" in metrics_bucket[0]
     assert "review_score" in ctx["metrics"]
+
+
+def test_console_tracer_emits_flow_and_node_spans():
+    stream = io.StringIO()
+    tracer = ConsoleTracer(stream=stream, enable_color=False)
+    previous_runtime = FlowRuntime.current()
+    FlowRuntime.configure(
+        tracer=tracer,
+        policy=previous_runtime.policy,
+        llm_factory=previous_runtime.llm_factory,
+    )
+    try:
+        module = __name__
+        nodes = {
+            "start": make_function_node(
+                name="start",
+                callable_path=f"{module}.fn_identity",
+            ),
+        }
+        flow = Flow.from_dsl(nodes=nodes, entry="start", edges=[])
+        ctx: Dict[str, Any] = {}
+        flow.run(ctx, user_input="hello")
+    finally:
+        FlowRuntime.configure(
+            tracer=previous_runtime.tracer,
+            policy=previous_runtime.policy,
+            llm_factory=previous_runtime.llm_factory,
+        )
+    output = stream.getvalue()
+    assert "[FLOW]" in output
+    assert "[NODE]" in output
+
+
+def test_sqlite_tracer_persists_spans(tmp_path):
+    db_path = tmp_path / "trace.db"
+    tracer = SQLiteTracer(db_path=str(db_path))
+    previous_runtime = FlowRuntime.current()
+    FlowRuntime.configure(
+        tracer=tracer,
+        policy=previous_runtime.policy,
+        llm_factory=previous_runtime.llm_factory,
+    )
+    try:
+        module = __name__
+        nodes = {
+            "start": make_function_node(
+                name="start",
+                callable_path=f"{module}.fn_identity",
+            ),
+            "second": make_function_node(
+                name="second",
+                callable_path=f"{module}.fn_identity",
+            ),
+        }
+        flow = Flow.from_dsl(nodes=nodes, entry="start", edges=["start >> second"])
+        ctx: Dict[str, Any] = {}
+        flow.run(ctx, user_input="hello")
+    finally:
+        FlowRuntime.configure(
+            tracer=previous_runtime.tracer,
+            policy=previous_runtime.policy,
+            llm_factory=previous_runtime.llm_factory,
+        )
+        tracer.close()
+
+    with sqlite3.connect(str(db_path)) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM spans WHERE kind = ?", ("node",))
+        node_spans = cur.fetchone()[0]
+        assert node_spans >= 1
+
+
+def test_otel_tracer_exports_spans():
+    exported: list[Mapping[str, Any]] = []
+
+    class DummyExporter:
+        def export(self, spans: Sequence[Mapping[str, Any]]) -> None:
+            exported.extend(spans)
+
+    tracer = OtelTracer(service_name="illumo-flow", exporter=DummyExporter())
+    previous_runtime = FlowRuntime.current()
+    FlowRuntime.configure(
+        tracer=tracer,
+        policy=previous_runtime.policy,
+        llm_factory=previous_runtime.llm_factory,
+    )
+    try:
+        module = __name__
+        nodes = {
+            "start": make_function_node(
+                name="start",
+                callable_path=f"{module}.fn_identity",
+            ),
+        }
+        flow = Flow.from_dsl(nodes=nodes, entry="start", edges=[])
+        ctx: Dict[str, Any] = {}
+        flow.run(ctx, user_input="hello")
+    finally:
+        FlowRuntime.configure(
+            tracer=previous_runtime.tracer,
+            policy=previous_runtime.policy,
+            llm_factory=previous_runtime.llm_factory,
+        )
+
+    assert any(span.get("kind") == "flow" for span in exported)
+    assert any(span.get("kind") == "node" for span in exported)

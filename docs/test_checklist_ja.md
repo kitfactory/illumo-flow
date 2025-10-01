@@ -27,3 +27,6 @@
 - [x] tests/test_flow_examples.py::test_agent_lmstudio_writes_to_agents_bucket — LMStudioベースのAgentがパス未指定時に`ctx.agents.<id>`へ保存することを確認
 - [x] tests/test_flow_examples.py::test_router_agent_selects_route_with_reason — RouterAgentが選択結果と理由を記録することを確認
 - [x] tests/test_flow_examples.py::test_evaluation_agent_records_score_and_metadata — EvaluationAgentがスコア・理由・構造化データを保存することを確認
+- [x] tests/test_flow_examples.py::test_console_tracer_emits_flow_and_node_spans — ConsoleTracerがフロー・ノードの開始/終了メッセージを出力することを確認
+- [x] tests/test_flow_examples.py::test_sqlite_tracer_persists_spans — SQLiteTracerがspan情報を永続化することを確認
+- [x] tests/test_flow_examples.py::test_otel_tracer_exports_spans — OtelTracerがエクスポーターへspanを送信することを確認

@@ -19,16 +19,16 @@
 - [x] `EvaluationAgent` テストを実行してパスさせ、チェックリストを更新する
 
 ## Tracer クラス実装とテスト
-- [ ] OpenAI Agents SDK Tracer インターフェース準拠の抽象を整備し、FlowRuntime から注入する経路を設計する
-- [ ] `ConsoleTracer` アダプタを作成し、Flow/Node span が色分けで出力されることを保証する
-- [ ] `ConsoleTracer` のテスト（span start/end・イベント発火）を追加し、docs/test_checklist.md に項目を記載する
-- [ ] `ConsoleTracer` テストを実行してパスさせ、チェックリストを更新する
-- [ ] `SQLiteTracer` アダプタで span 永続化を実装する
-- [ ] `SQLiteTracer` のテスト（SQLite に記録されるか、既定パスの扱い）を追記し、docs/test_checklist.md を更新する
-- [ ] `SQLiteTracer` テストを実行してパスさせ、チェックリストに反映する
-- [ ] `OtelTracer` アダプタのエクスポート処理を実装する
-- [ ] `OtelTracer` テスト（モックエクスポーターでの span 送信確認）を追加し、docs/test_checklist.md へ登録する
-- [ ] `OtelTracer` テストを実行してパスさせ、チェックリストを更新する
+- [x] OpenAI Agents SDK Tracer インターフェース準拠の抽象を整備し、FlowRuntime から注入する経路を設計する
+- [x] `ConsoleTracer` アダプタを作成し、Flow/Node span が色分けで出力されることを保証する
+- [x] `ConsoleTracer` のテスト（span start/end・イベント発火）を追加し、docs/test_checklist.md に項目を記載する
+- [x] `ConsoleTracer` テストを実行してパスさせ、チェックリストを更新する
+- [x] `SQLiteTracer` アダプタで span 永続化を実装する
+- [x] `SQLiteTracer` のテスト（SQLite に記録されるか、既定パスの扱い）を追記し、docs/test_checklist.md を更新する
+- [x] `SQLiteTracer` テストを実行してパスさせ、チェックリストに反映する
+- [x] `OtelTracer` アダプタのエクスポート処理を実装する
+- [x] `OtelTracer` テスト（モックエクスポーターでの span 送信確認）を追加し、docs/test_checklist.md へ登録する
+- [x] `OtelTracer` テストを実行してパスさせ、チェックリストを更新する
 
 ## Policy 機能実装とテスト
 - [ ] グローバル `Policy` モデルと FlowRuntime 連携を実装し、fail_fast/timeout/retry/on_error の合成順序を確立する

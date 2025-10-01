@@ -27,3 +27,6 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_flow_examples.py::test_agent_lmstudio_writes_to_agents_bucket — Confirms LMStudio-backed Agents store outputs under `ctx.agents.<id>` when paths are omitted
 - [x] tests/test_flow_examples.py::test_router_agent_selects_route_with_reason — Validates RouterAgent records the chosen branch and rationale
 - [x] tests/test_flow_examples.py::test_evaluation_agent_records_score_and_metadata — Ensures EvaluationAgent stores scores, reasons, and structured payloads
+- [x] tests/test_flow_examples.py::test_console_tracer_emits_flow_and_node_spans — Verifies console tracer outputs span lifecycle messages
+- [x] tests/test_flow_examples.py::test_sqlite_tracer_persists_spans — Confirms SQLite tracer records span rows for flow/node execution
+- [x] tests/test_flow_examples.py::test_otel_tracer_exports_spans — Ensures Otel tracer forwards span payloads to the configured exporter

@@ -23,7 +23,7 @@ from .policy import (
     _record_node_error,
 )
 from .runtime import FlowRuntime, get_llm
-from .tracing import ConsoleTracer, OtelTracer, SQLiteTracer, _emit_tracer_event
+from .tracing import ConsoleTracer, OtelTracer, SQLiteTracer, SpanTracker, emit_event
 
 
 _TEMPLATE_PATTERN = re.compile(r"\{\{\s*(.+?)\s*\}\}")
@@ -1155,7 +1155,11 @@ class Flow:
         return [t for t in terms if t]
 
     # ------------------------------------------------------------------
-    def run(self, context: Optional[MutableMapping[str, Any]] = None, user_input: Any = None) -> Any:
+    def run(
+        self,
+        context: Optional[MutableMapping[str, Any]] = None,
+        user_input: Any = None,
+    ) -> Any:
         runtime = FlowRuntime.current()
         context = _ensure_context(context)
         context.setdefault("runtime", runtime)
@@ -1167,6 +1171,9 @@ class Flow:
             tracer = ConsoleTracer()
             runtime.tracer = tracer
 
+        tracker = SpanTracker(tracer)
+        flow_span = tracker.start_span(kind="flow", name=self.entry_id, attributes={"entry": self.entry_id})
+
         ready = deque([self.entry_id])
         remaining = dict(self.dependency_counts)
         completed: Set[str] = set()
@@ -1175,19 +1182,13 @@ class Flow:
         max_steps_env = os.environ.get("FLOW_DEBUG_MAX_STEPS")
         max_steps = int(max_steps_env) if max_steps_env else None
         step_counter = 0
-        iteration = 0
-
-        _emit_tracer_event(tracer, "flow_start", flow=self, context=context)
 
         try:
             while ready:
-                iteration += 1
-                if iteration % 100 == 0:
-                    print(f"[Flow] iteration={iteration} queue={list(ready)}", flush=True)
                 if max_steps is not None and step_counter >= max_steps:
-                    print(f"[Flow] debug break after {step_counter} steps", flush=True)
                     break
                 step_counter += 1
+
                 node_id = ready.popleft()
                 in_queue.discard(node_id)
 
@@ -1200,43 +1201,45 @@ class Flow:
                     continue
 
                 node = self.nodes[node_id]
-                print(
-                    f"[Flow] executing node={node_id} ready={list(ready)} "
-                    f"remaining={remaining.get(node_id,0)}",
-                    flush=True,
-                )
                 context["steps"].append({"node_id": node_id, "status": "start"})
 
-                input_payload = payloads.get(node_id)
-                if getattr(node, "_inputs", None):
-                    resolved_inputs: Dict[str, Any] = {}
-                    for alias, expr in node._inputs:
-                        resolved_inputs[alias] = _evaluate_expression(context, expr)
-                    if len(node._inputs) == 1:
-                        input_payload = next(iter(resolved_inputs.values()))
-                    else:
-                        input_payload = resolved_inputs
-
-                combined_policy = self._resolve_policy_for_node(runtime.policy, node)
-
-                _emit_tracer_event(
-                    tracer,
-                    "node_start",
-                    flow=self,
-                    node_id=node_id,
-                    node=node,
-                    payload=input_payload,
+                node_span = tracker.start_span(
+                    kind="node",
+                    name=node_id,
+                    attributes={"node_type": node.__class__.__name__},
                 )
 
-                status, raw_result, goto_target = self._execute_node_with_policy(
-                    node=node,
-                    input_payload=input_payload,
-                    context=context,
-                    policy=combined_policy,
-                    tracer=tracer,
-                )
+                try:
+                    input_payload = payloads.get(node_id)
+                    if getattr(node, "_inputs", None):
+                        resolved_inputs: Dict[str, Any] = {}
+                        for alias, expr in node._inputs:
+                            resolved_inputs[alias] = _evaluate_expression(context, expr)
+                        if len(node._inputs) == 1:
+                            input_payload = next(iter(resolved_inputs.values()))
+                        else:
+                            input_payload = resolved_inputs
+
+                    combined_policy = self._resolve_policy_for_node(runtime.policy, node)
+
+                    status, raw_result, goto_target = self._execute_node_with_policy(
+                        node=node,
+                        input_payload=input_payload,
+                        context=context,
+                        policy=combined_policy,
+                    )
+                except Exception as exc:
+                    tracker.emit_event(
+                        event_type="node.error",
+                        level="error",
+                        message=str(exc),
+                        attributes={"node_id": node_id},
+                    )
+                    tracker.end_span(node_span, status="ERROR", error=str(exc))
+                    raise
 
                 if status == "goto":
+                    tracker.end_span(node_span, status="OK")
                     completed.add(node_id)
                     context["steps"].append({"node_id": node_id, "status": "goto", "target": goto_target})
                     self._enqueue_goto(
@@ -1250,6 +1253,7 @@ class Flow:
                     continue
 
                 if status not in {"success", "continue"}:
+                    tracker.end_span(node_span, status="OK")
                     completed.add(node_id)
                     continue
 
@@ -1271,6 +1275,7 @@ class Flow:
                     store_value = branch_payloads
                 else:
                     if isinstance(result_to_store, Routing):
+                        tracker.end_span(node_span, status="ERROR", error="routing_return")
                         raise FlowError(
                             f"Node '{node_id}' returned a Routing result but is not a RoutingNode"
                         )
@@ -1285,24 +1290,16 @@ class Flow:
 
                 context["payloads"][node_id] = store_value
                 context["steps"].append({"node_id": node_id, "status": status})
+                tracker.end_span(node_span, status="OK")
                 completed.add(node_id)
-
-                _emit_tracer_event(
-                    tracer,
-                    "node_end",
-                    flow=self,
-                    node_id=node_id,
-                    node=node,
-                    result=store_value,
-                )
 
                 branch_keys: Optional[Set[str]] = None
                 if routing_entries is not None:
                     branch_keys = {route.target for route, _ in routing_entries}
                     if not branch_keys:
-                        print(
-                            f"[Flow] node={node_id} produced empty routing -> stopping successors",
-                            flush=True,
+                        tracker.emit_event(
+                            event_type="routing.empty",
+                            attributes={"node_id": node_id},
                         )
                         continue
 
@@ -1315,23 +1312,15 @@ class Flow:
                     ordered_entries = [
                         entry for entry in routing_entries if entry[0].target in successors
                     ]
-                    route_iterable: Iterable[Tuple[str, Any]] = (
+                    route_iterable: Sequence[Tuple[str, Any]] = [
                         (route.target, branch_payload_map.get(route.target))
                         for route, _ in ordered_entries
-                    )
+                    ]
                 else:
-                    route_iterable = ((target, store_value) for target in successors)
+                    route_iterable = [(target, store_value) for target in successors]
 
                 for target, payload_candidate in route_iterable:
-                    print(
-                        f"[Flow] enqueue candidate target={target} from node={node_id}",
-                        flush=True,
-                    )
                     if routing_entries is not None and target not in successors:
-                        print(
-                            f"[Flow] skip target={target} not in routing successors",
-                            flush=True,
-                        )
                         continue
 
                     next_payload = payload_candidate if payload_candidate is not None else store_value
@@ -1364,19 +1353,16 @@ class Flow:
                         completed.discard(target)
 
                     if remaining[target] == 0 and target not in completed and target not in in_queue:
-                        print(f"[Flow] append target={target} to ready queue", flush=True)
                         ready.append(target)
                         in_queue.add(target)
 
-                print(
-                    f"[Flow] end iteration ready={list(ready)} completed={completed}",
-                    flush=True,
-                )
         except Exception as exc:
-            _emit_tracer_event(tracer, "flow_error", flow=self, error=exc)
+            tracker.end_span(flow_span, status="ERROR", error=str(exc))
             raise
+        else:
+            tracker.end_span(flow_span, status="OK")
         finally:
-            _emit_tracer_event(tracer, "flow_end", flow=self, context=context)
+            tracker.close()
 
         return context
 
@@ -1415,7 +1401,6 @@ class Flow:
         input_payload: Any,
         context: MutableMapping[str, Any],
         policy: Policy,
-        tracer: Any,
     ) -> Tuple[str, Any, Optional[str]]:
         attempts = 0
         delay = max(policy.retry.delay, 0.0)
@@ -1427,20 +1412,18 @@ class Flow:
                 attempts += 1
                 should_retry = policy.retry.max_attempts > 0 and attempts <= policy.retry.max_attempts
                 if should_retry:
-                    _emit_tracer_event(
-                        tracer,
-                        "node_error",
-                        flow=self,
-                        node_id=node.node_id,
-                        node=node,
-                        error=exc,
+                    emit_event(
+                        "node.retry",
+                        level="warning",
+                        message=str(exc),
+                        attributes={"node_id": node.node_id, "attempt": attempts},
                     )
                     if delay > 0:
                         time.sleep(delay)
                         if policy.retry.mode == "exponential" and delay > 0:
                             delay *= 2
                     continue
-                return self._handle_node_error(node, input_payload, context, policy, tracer, exc)
+                return self._handle_node_error(node, input_payload, context, policy, exc)
 
     def _call_with_timeout(
         self,
@@ -1468,17 +1451,14 @@ class Flow:
         input_payload: Any,
         context: MutableMapping[str, Any],
         policy: Policy,
-        tracer: Any,
         exc: BaseException,
     ) -> Tuple[str, Any, Optional[str]]:
         _record_node_error(context, node.node_id, exc)
-        _emit_tracer_event(
-            tracer,
-            "node_error",
-            flow=self,
-            node_id=node.node_id,
-            node=node,
-            error=exc,
+        emit_event(
+            "node.error",
+            level="error",
+            message=str(exc),
+            attributes={"node_id": node.node_id},
         )
         action = (policy.on_error.action if policy.on_error else "stop").lower()
         if action == "stop" and policy.fail_fast:

@@ -17,8 +17,8 @@ from ..core import (
     _resolve_scope_mapping,
     _set_to_path,
 )
-from ..runtime import FlowRuntime, get_llm
-from ..tracing import _emit_tracer_event
+from ..runtime import get_llm
+from ..tracing import emit_event
 
 
 class AgentRunResult:
@@ -74,23 +74,20 @@ class AgentMixin:
         prompt_override: Optional[str] = None,
         system_override: Optional[str] = None,
     ) -> Tuple[AgentRunResult, str]:
-        runtime = FlowRuntime.current()
-        tracer = getattr(runtime, "tracer", None)
-
         instructions = self._render_template(context, system_override if system_override is not None else self._system_prompt)
         prompt_text = self._render_template(context, prompt_override if prompt_override is not None else self._prompt_template)
 
         if instructions:
-            _emit_tracer_event(tracer, "agent_instruction", node_id=self.node_id, text=instructions)
+            emit_event("agent_instruction", message=instructions, attributes={"node_id": self.node_id})
         if prompt_text:
-            _emit_tracer_event(tracer, "agent_input", node_id=self.node_id, text=prompt_text)
+            emit_event("agent_input", message=prompt_text, attributes={"node_id": self.node_id})
 
         llm = get_llm(self._provider, self._model, base_url=self._base_url)
         raw_result = self._invoke_llm(llm, prompt_text, instructions=instructions)
         normalized = self._normalize_result(raw_result)
 
         if normalized.response:
-            _emit_tracer_event(tracer, "agent_response", node_id=self.node_id, text=normalized.response)
+            emit_event("agent_response", message=normalized.response, attributes={"node_id": self.node_id})
 
         timestamp = self._store_outputs(context, normalized)
         return normalized, timestamp
