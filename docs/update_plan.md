@@ -7,11 +7,10 @@
 - [x] `get_llm()` など既存の LLM 取得経路と OpenAI Agents SDK の接続方式を比較し、モデル解決順序（OpenAI→Anthropic→Google→LMStudio→Ollama→OpenRouter）を再確認する
 - [x] LLM テスト方針として OpenAI `gpt-4.1-nano` を標準、LMStudio `openai/gpt-oss-20b`（`http://192.168.11.16:1234`）を別プロバイダ検証に用い、Google/Anthropic/Ollama/OpenRouter は実装のみとする
 
-## Agent クラス実装とテスト
-- [ ] `Agent` クラスの API/責務を確定し、既存 Node ライフサイクルへ統合する
-- [ ] `Agent` 用の pytest ケースを追記し（多重出力や `history_path` の検証を含む）、docs/test_checklist.md に該当項目を追加する
-- [ ] Agent 系テストは OpenAI `gpt-4.1-nano` を既定モデルとして実行し、別プロバイダ確認は LMStudio (`http://192.168.11.16:1234`, モデル `openai/gpt-oss-20b`) で行う
-- [ ] `Agent` テストを個別に実行してパスさせ、docs/test_checklist.md / docs/test_checklist_ja.md の該当行をチェックする
+- [x] `Agent` クラスの API/責務を確定し、既存 Node ライフサイクルへ統合する
+- [x] `Agent` 用の pytest ケースを追記し（多重出力や `history_path` の検証を含む）、docs/test_checklist.md に該当項目を追加する
+- [x] Agent 系テストは OpenAI `gpt-4.1-nano` を既定モデルとして実行し、別プロバイダ確認は LMStudio (`http://192.168.11.16:1234`, モデル `openai/gpt-oss-20b`) で行う
+- [x] `Agent` テストを個別に実行してパスさせ、docs/test_checklist.md / docs/test_checklist_ja.md の該当行をチェックする
 - [ ] `RouterAgent` クラスの分岐ロジックと会話履歴参照を実装する
 - [ ] `RouterAgent` 専用テスト（選択結果と `metadata_path` の保存確認）を追加し、docs/test_checklist.md へ管理項目を追記する
 - [ ] `RouterAgent` テストをケース単位で実行し、チェックリストにパス結果を反映する

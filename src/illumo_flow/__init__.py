@@ -14,6 +14,7 @@ from .core import (
 from .policy import OnError, Policy, Retry
 from .runtime import FlowRuntime, get_llm
 from .tracing import ConsoleTracer, OtelTracer, SQLiteTracer
+from .nodes import Agent
 
 __all__ = [
     "Flow",
@@ -33,4 +34,5 @@ __all__ = [
     "ConsoleTracer",
     "SQLiteTracer",
     "OtelTracer",
+    "Agent",
 ]
