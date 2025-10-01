@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional
+from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional, Tuple
 
 from ..core import (
     FlowError,
     Node,
     NodeConfig,
+    Routing,
+    RoutingNode,
     _evaluate_expression,
     _parse_target_expression,
     _resolve_scope_mapping,
@@ -19,23 +21,30 @@ from ..runtime import FlowRuntime, get_llm
 from ..tracing import _emit_tracer_event
 
 
-@dataclass
 class AgentRunResult:
-    """Normalized LLM invocation outputs."""
+    """Normalized output returned from an LLM invocation."""
 
-    response: Optional[str]
-    history: Optional[Iterable[Any]]
-    metadata: Optional[Mapping[str, Any]]
-    structured: Optional[Any]
+    __slots__ = ("response", "history", "metadata", "structured")
+
+    def __init__(
+        self,
+        response: Optional[str],
+        history: Optional[Iterable[Any]],
+        metadata: Optional[Mapping[str, Any]],
+        structured: Optional[Any],
+    ) -> None:
+        self.response = response
+        self.history = history
+        self.metadata = metadata
+        self.structured = structured
 
 
-class Agent(Node):
-    """LLM-backed node that renders prompts and records conversational outputs."""
+class AgentMixin:
+    """Shared behaviour for Agent variants."""
 
     DEFAULT_MODEL = "gpt-4.1-nano"
 
     def __init__(self, *, config: NodeConfig) -> None:
-        super().__init__(config=config)
         self._provider: Optional[str] = self._read_setting(config, "provider")
         self._model: str = self._read_setting(config, "model") or self.DEFAULT_MODEL
         self._base_url: Optional[str] = self._read_setting(config, "base_url")
@@ -47,33 +56,44 @@ class Agent(Node):
         self._metadata_path: Optional[str] = self._read_setting(config, "metadata_path")
         self._structured_path: Optional[str] = self._read_setting(config, "structured_path")
 
+    # ------------------------------------------------------------------
     @staticmethod
     def _read_setting(config: NodeConfig, key: str) -> Optional[Any]:
         value = config.setting_value(key)
-        return value if value not in {"", None} else None
+        if value is None:
+            return None
+        if isinstance(value, str) and not value:
+            return None
+        return value
 
     # ------------------------------------------------------------------
-    def run(self, payload: Any) -> Any:
-        context = self.request_context()
+    def _invoke(
+        self,
+        context: MutableMapping[str, Any],
+        *,
+        prompt_override: Optional[str] = None,
+        system_override: Optional[str] = None,
+    ) -> Tuple[AgentRunResult, str]:
         runtime = FlowRuntime.current()
-        prompt_text = self._render_template(context, self._prompt_template)
-        instructions = self._render_template(context, self._system_prompt)
-
         tracer = getattr(runtime, "tracer", None)
+
+        instructions = self._render_template(context, system_override if system_override is not None else self._system_prompt)
+        prompt_text = self._render_template(context, prompt_override if prompt_override is not None else self._prompt_template)
+
         if instructions:
             _emit_tracer_event(tracer, "agent_instruction", node_id=self.node_id, text=instructions)
         if prompt_text:
             _emit_tracer_event(tracer, "agent_input", node_id=self.node_id, text=prompt_text)
 
         llm = get_llm(self._provider, self._model, base_url=self._base_url)
-        result = self._invoke_llm(llm, prompt_text, instructions=instructions)
-        normalized = self._normalize_result(result)
+        raw_result = self._invoke_llm(llm, prompt_text, instructions=instructions)
+        normalized = self._normalize_result(raw_result)
 
         if normalized.response:
             _emit_tracer_event(tracer, "agent_response", node_id=self.node_id, text=normalized.response)
 
-        self._store_outputs(context, normalized)
-        return normalized.response
+        timestamp = self._store_outputs(context, normalized)
+        return normalized, timestamp
 
     # ------------------------------------------------------------------
     def _invoke_llm(
@@ -92,10 +112,9 @@ class Agent(Node):
             request_payload["tools"] = list(self._tools)
 
         responses = getattr(llm, "responses", None)
-        if responses is not None:
-            create = getattr(responses, "create", None)
-            if callable(create):
-                return create(**request_payload)
+        create = getattr(responses, "create", None) if responses is not None else None
+        if callable(create):
+            return create(**request_payload)
 
         chat = getattr(llm, "chat", None)
         completions = getattr(chat, "completions", None) if chat is not None else None
@@ -120,20 +139,28 @@ class Agent(Node):
         metadata: Optional[Mapping[str, Any]] = None
         structured: Optional[Any] = None
 
-        if hasattr(value, "output_text"):
-            output_text = getattr(value, "output_text")
-            if isinstance(output_text, Iterable):
-                output_list = list(output_text)
-                if output_list:
-                    response_text = str(output_list[0])
-            else:
-                response_text = str(output_text)
-
-        if response_text is None and hasattr(value, "text"):
-            response_text = str(getattr(value, "text"))
+        candidates = (
+            getattr(value, "output_text", None),
+            getattr(value, "text", None),
+            getattr(value, "content", None),
+        )
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            if isinstance(candidate, str):
+                response_text = candidate
+                break
+            if isinstance(candidate, Iterable):
+                items = list(candidate)
+                if items:
+                    response_text = str(items[0])
+                    break
 
         if response_text is None and isinstance(value, Mapping):
-            response_text = str(value.get("response") or value.get("content") or "")
+            for key in ("response", "content", "text"):
+                if key in value and value[key]:
+                    response_text = str(value[key])
+                    break
 
         if hasattr(value, "messages"):
             history = getattr(value, "messages")
@@ -158,7 +185,7 @@ class Agent(Node):
         )
 
     # ------------------------------------------------------------------
-    def _store_outputs(self, context: MutableMapping[str, Any], result: AgentRunResult) -> None:
+    def _store_outputs(self, context: MutableMapping[str, Any], result: AgentRunResult) -> str:
         bucket = context.setdefault("agents", {}).setdefault(self.node_id, {})
         timestamp = datetime.utcnow().isoformat()
 
@@ -174,24 +201,55 @@ class Agent(Node):
             else:
                 bucket[key] = [existing, entry]
 
-        self._store_slot(context, bucket, "response", self._output_path, result.response, append_entry)
-        self._store_slot(context, bucket, "history", self._history_path, result.history, append_entry)
-        self._store_slot(context, bucket, "metadata", self._metadata_path, result.metadata, append_entry)
-        self._store_slot(context, bucket, "structured", self._structured_path, result.structured, append_entry)
+        self._store_slot(
+            context=context,
+            bucket=bucket,
+            key="response",
+            target_path=self._output_path,
+            value=result.response,
+            default_writer=append_entry,
+        )
+        self._store_slot(
+            context=context,
+            bucket=bucket,
+            key="history",
+            target_path=self._history_path,
+            value=result.history,
+            default_writer=append_entry,
+        )
+        self._store_slot(
+            context=context,
+            bucket=bucket,
+            key="metadata",
+            target_path=self._metadata_path,
+            value=result.metadata,
+            default_writer=append_entry,
+        )
+        self._store_slot(
+            context=context,
+            bucket=bucket,
+            key="structured",
+            target_path=self._structured_path,
+            value=result.structured,
+            default_writer=append_entry,
+        )
+        return timestamp
 
+    # ------------------------------------------------------------------
     def _store_slot(
         self,
         context: MutableMapping[str, Any],
         bucket: MutableMapping[str, Any],
+        *,
         key: str,
-        path: Optional[str],
+        target_path: Optional[str],
         value: Any,
         default_writer: Callable[[str, Any], None],
     ) -> None:
         if value is None:
             return
-        if path:
-            scope, rel = _parse_target_expression(path)
+        if target_path:
+            scope, rel = _parse_target_expression(target_path)
             target = _resolve_scope_mapping(context, scope)
             _set_to_path(target, rel, value)
         else:
@@ -206,6 +264,172 @@ class Agent(Node):
         if not template:
             return None
         try:
-            return str(_evaluate_expression(context, template))
+            rendered = _evaluate_expression(context, template)
         except Exception:
-            return template
+            rendered = template
+        return str(rendered) if rendered is not None else None
+
+
+class Agent(AgentMixin, Node):
+    """Standard LLM agent node."""
+
+    def __init__(self, *, config: NodeConfig) -> None:
+        Node.__init__(self, config=config)
+        AgentMixin.__init__(self, config=config)
+
+    def run(self, payload: Any) -> Any:
+        context = self.request_context()
+        result, _ = self._invoke(context)
+        return result.response
+
+
+class RouterAgent(AgentMixin, RoutingNode):
+    """Routing node driven by an LLM decision."""
+
+    def __init__(self, *, config: NodeConfig) -> None:
+        RoutingNode.__init__(self, config=config)
+        AgentMixin.__init__(self, config=config)
+        raw_choices = self._read_setting(config, "choices")
+        if not raw_choices or not isinstance(raw_choices, Iterable):
+            raise FlowError("RouterAgent requires a 'choices' iterable in settings")
+        self._choices = [str(choice) for choice in raw_choices]
+
+    def run(self, payload: Any) -> Routing:
+        context = self.request_context()
+        prompt_override = self._prompt_template or ""
+        choice_clause = ", ".join(self._choices)
+        prompt_override = (
+            f"{prompt_override}\n\nChoose exactly one of: {choice_clause}."
+            if prompt_override
+            else f"Choose exactly one of: {choice_clause}."
+        )
+
+        normalized, timestamp = self._invoke(context, prompt_override=prompt_override)
+        decision = self._extract_choice(normalized.response)
+        reason = normalized.response
+
+        self._store_router_outputs(context, decision, reason, timestamp)
+        return Routing(target=decision, reason=reason)
+
+    def _extract_choice(self, response_text: Optional[str]) -> str:
+        if not response_text:
+            raise FlowError("RouterAgent could not determine a decision from an empty response")
+        lowered = response_text.lower()
+        for choice in self._choices:
+            if choice.lower() in lowered:
+                return choice
+        # fallback to first token if matches exactly
+        candidate = response_text.strip().split()[0]
+        for choice in self._choices:
+            if choice.lower() == candidate.lower():
+                return choice
+        raise FlowError("RouterAgent response did not contain any configured choice")
+
+    def _store_router_outputs(
+        self,
+        context: MutableMapping[str, Any],
+        decision: str,
+        reason: Optional[str],
+        timestamp: str,
+    ) -> None:
+        records = context.setdefault("routing", {}).setdefault(self.node_id, [])
+        record = {"timestamp": timestamp, "target": decision}
+        if reason:
+            record["reason"] = reason
+        records.append(record)
+
+        if self._output_path:
+            scope, rel = _parse_target_expression(self._output_path)
+            target = _resolve_scope_mapping(context, scope)
+            _set_to_path(target, rel, decision)
+
+        if self._metadata_path and reason is not None:
+            scope, rel = _parse_target_expression(self._metadata_path)
+            target = _resolve_scope_mapping(context, scope)
+            _set_to_path(target, rel, reason)
+
+
+class EvaluationAgent(AgentMixin, Node):
+    """LLM-backed evaluator that records numeric scores and JSON details."""
+
+    def __init__(self, *, config: NodeConfig) -> None:
+        Node.__init__(self, config=config)
+        AgentMixin.__init__(self, config=config)
+        self._target: Optional[str] = self._read_setting(config, "target")
+
+    def run(self, payload: Any) -> Any:
+        context = self.request_context()
+        prompt_override = self._prompt_template
+        if self._target:
+            try:
+                target_value = _evaluate_expression(context, self._target)
+            except Exception as exc:
+                raise FlowError("EvaluationAgent failed to resolve target expression") from exc
+            target_text = "" if target_value is None else str(target_value)
+            if prompt_override:
+                prompt_override = f"{prompt_override}\n\nTarget:\n{target_text}"
+            else:
+                prompt_override = (
+                    "Evaluate the following content and respond with JSON containing "
+                    "fields 'score' and 'reasons':\n"
+                    f"{target_text}"
+                )
+
+        normalized, timestamp = self._invoke(context, prompt_override=prompt_override)
+        score, reasons, structured = self._parse_evaluation(normalized)
+
+        self._store_evaluation(context, score, reasons, structured, timestamp)
+        return score
+
+    def _parse_evaluation(self, result: AgentRunResult) -> Tuple[Any, Optional[str], Optional[Any]]:
+        structured_payload = result.structured
+        reasons: Optional[str] = None
+        score: Any = result.response
+
+        if structured_payload is None and result.response:
+            try:
+                structured_payload = json.loads(result.response)
+            except Exception:
+                structured_payload = None
+
+        if isinstance(structured_payload, Mapping):
+            if "score" in structured_payload:
+                score = structured_payload.get("score")
+            reasons = structured_payload.get("reasons") or structured_payload.get("reason")
+        elif isinstance(score, str):
+            stripped = score.strip()
+            if stripped.isdigit():
+                score = int(stripped)
+
+        return score, reasons, structured_payload
+
+    def _store_evaluation(
+        self,
+        context: MutableMapping[str, Any],
+        score: Any,
+        reasons: Optional[str],
+        structured: Optional[Any],
+        timestamp: str,
+    ) -> None:
+        metrics_bucket = context.setdefault("metrics", {}).setdefault(self.node_id, [])
+        entry: Dict[str, Any] = {"timestamp": timestamp, "score": score}
+        if reasons:
+            entry["reasons"] = reasons
+        if structured is not None:
+            entry["structured"] = structured
+        metrics_bucket.append(entry)
+
+        if self._output_path:
+            scope, rel = _parse_target_expression(self._output_path)
+            target = _resolve_scope_mapping(context, scope)
+            _set_to_path(target, rel, score)
+
+        if self._metadata_path and reasons is not None:
+            scope, rel = _parse_target_expression(self._metadata_path)
+            target = _resolve_scope_mapping(context, scope)
+            _set_to_path(target, rel, reasons)
+
+        if self._structured_path and structured is not None:
+            scope, rel = _parse_target_expression(self._structured_path)
+            target = _resolve_scope_mapping(context, scope)
+            _set_to_path(target, rel, structured)

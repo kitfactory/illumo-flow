@@ -25,3 +25,5 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_flow_examples.py::test_get_llm_respects_explicit_provider_priority — Confirms explicit provider arguments override heuristic ordering
 - [x] tests/test_flow_examples.py::test_agent_openai_writes_to_configured_paths — Ensures OpenAI-backed Agents write responses to configured context paths
 - [x] tests/test_flow_examples.py::test_agent_lmstudio_writes_to_agents_bucket — Confirms LMStudio-backed Agents store outputs under `ctx.agents.<id>` when paths are omitted
+- [x] tests/test_flow_examples.py::test_router_agent_selects_route_with_reason — Validates RouterAgent records the chosen branch and rationale
+- [x] tests/test_flow_examples.py::test_evaluation_agent_records_score_and_metadata — Ensures EvaluationAgent stores scores, reasons, and structured payloads

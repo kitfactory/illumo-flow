@@ -25,3 +25,5 @@
 - [x] tests/test_flow_examples.py::test_get_llm_respects_explicit_provider_priority — 明示指定したプロバイダがヒューリスティックより優先されることを確認
 - [x] tests/test_flow_examples.py::test_agent_openai_writes_to_configured_paths — OpenAIベースのAgentが指定パスへ応答を保存することを確認
 - [x] tests/test_flow_examples.py::test_agent_lmstudio_writes_to_agents_bucket — LMStudioベースのAgentがパス未指定時に`ctx.agents.<id>`へ保存することを確認
+- [x] tests/test_flow_examples.py::test_router_agent_selects_route_with_reason — RouterAgentが選択結果と理由を記録することを確認
+- [x] tests/test_flow_examples.py::test_evaluation_agent_records_score_and_metadata — EvaluationAgentがスコア・理由・構造化データを保存することを確認

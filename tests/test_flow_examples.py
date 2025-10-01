@@ -21,6 +21,8 @@ from illumo_flow import (
     FlowError,
     FlowRuntime,
     Agent,
+    RouterAgent,
+    EvaluationAgent,
     FunctionNode,
     LoopNode,
     Policy,
@@ -608,3 +610,56 @@ def test_agent_lmstudio_writes_to_agents_bucket():
     assert isinstance(response, str) and response.strip()
     agents_bucket = ctx["agents"]["lmstudio_agent"]
     assert agents_bucket["response"]["value"].strip() == response.strip()
+
+
+def test_router_agent_selects_route_with_reason():
+    config = NodeConfig(
+        name="Router",
+        setting={
+            "prompt": {
+                "type": "string",
+                "value": "Context: {{ $ctx.request }}",
+            },
+            "choices": {"type": "sequence", "value": ["Ship", "Refine"]},
+            "output_path": {"type": "string", "value": "$ctx.route.decision"},
+            "metadata_path": {"type": "string", "value": "$ctx.route.reason"},
+        },
+    )
+    agent = RouterAgent(config=config)
+    agent.bind("router_agent")
+
+    ctx: Dict[str, Any] = {"request": "All tests are green and documentation is updated."}
+    routing = agent._execute({}, ctx)
+
+    assert isinstance(routing, Routing)
+    assert routing.target in {"Ship", "Refine"}
+    assert ctx["route"]["decision"] in {"Ship", "Refine"}
+    assert ctx["routing"]["router_agent"]
+
+
+def test_evaluation_agent_records_score_and_metadata():
+    config = NodeConfig(
+        name="Reviewer",
+        setting={
+            "prompt": {
+                "type": "string",
+                "value": "Provide JSON with fields 'score' and 'reasons'.",
+            },
+            "target": {"type": "string", "value": "$ctx.proposal"},
+            "output_path": {"type": "string", "value": "$ctx.metrics.review_score"},
+            "metadata_path": {"type": "string", "value": "$ctx.metrics.review_reason"},
+            "structured_path": {
+                "type": "string", "value": "$ctx.metrics.review_details"
+            },
+        },
+    )
+    agent = EvaluationAgent(config=config)
+    agent.bind("review_agent")
+
+    ctx: Dict[str, Any] = {"proposal": "Introduce better onboarding messaging."}
+    score = agent._execute({}, ctx)
+
+    assert score is not None
+    metrics_bucket = ctx["metrics"]["review_agent"]
+    assert metrics_bucket and "score" in metrics_bucket[0]
+    assert "review_score" in ctx["metrics"]

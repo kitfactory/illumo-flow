@@ -11,12 +11,12 @@
 - [x] `Agent` 用の pytest ケースを追記し（多重出力や `history_path` の検証を含む）、docs/test_checklist.md に該当項目を追加する
 - [x] Agent 系テストは OpenAI `gpt-4.1-nano` を既定モデルとして実行し、別プロバイダ確認は LMStudio (`http://192.168.11.16:1234`, モデル `openai/gpt-oss-20b`) で行う
 - [x] `Agent` テストを個別に実行してパスさせ、docs/test_checklist.md / docs/test_checklist_ja.md の該当行をチェックする
-- [ ] `RouterAgent` クラスの分岐ロジックと会話履歴参照を実装する
-- [ ] `RouterAgent` 専用テスト（選択結果と `metadata_path` の保存確認）を追加し、docs/test_checklist.md へ管理項目を追記する
-- [ ] `RouterAgent` テストをケース単位で実行し、チェックリストにパス結果を反映する
-- [ ] `EvaluationAgent` クラスで JSON 評価出力とスコア保存を実装する
-- [ ] `EvaluationAgent` テスト（`structured_path`、合否判定など）を追加し、docs/test_checklist.md に登録する
-- [ ] `EvaluationAgent` テストを実行してパスさせ、チェックリストを更新する
+- [x] `RouterAgent` クラスの分岐ロジックと会話履歴参照を実装する
+- [x] `RouterAgent` 専用テスト（選択結果と `metadata_path` の保存確認）を追加し、docs/test_checklist.md へ管理項目を追記する
+- [x] `RouterAgent` テストをケース単位で実行し、チェックリストにパス結果を反映する
+- [x] `EvaluationAgent` クラスで JSON 評価出力とスコア保存を実装する
+- [x] `EvaluationAgent` テスト（`structured_path`、合否判定など）を追加し、docs/test_checklist.md に登録する
+- [x] `EvaluationAgent` テストを実行してパスさせ、チェックリストを更新する
 
 ## Tracer クラス実装とテスト
 - [ ] OpenAI Agents SDK Tracer インターフェース準拠の抽象を整備し、FlowRuntime から注入する経路を設計する
