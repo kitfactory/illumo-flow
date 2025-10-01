@@ -30,3 +30,4 @@
 - [x] tests/test_flow_examples.py::test_console_tracer_emits_flow_and_node_spans — ConsoleTracerがフロー・ノードの開始/終了メッセージを出力することを確認
 - [x] tests/test_flow_examples.py::test_sqlite_tracer_persists_spans — SQLiteTracerがspan情報を永続化することを確認
 - [x] tests/test_flow_examples.py::test_otel_tracer_exports_spans — OtelTracerがエクスポーターへspanを送信することを確認
+- [ ] CLI手動確認 — `illumo run` による `--tracer`／Policy 上書きの動作確認を実施

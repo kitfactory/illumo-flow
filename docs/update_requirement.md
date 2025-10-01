@@ -120,82 +120,33 @@ class Tracer(Protocol):
     def log(self, msg: str, **kwargs): ...
 ```
 
-### 3.2 TracerFactory と設定優先順位（**SDK Tracer のアダプタを生成**）
+### 3.2 Tracer 注入と `SpanTracker`
+
+* `FlowRuntime.configure(tracer=...)` によりプロセス全体の既定トレーサーを切り替える。指定が無い場合は `ConsoleTracer`。
+* `SpanTracker` が flow/node span を自動生成し、`TracerProtocol` の `on_span_start` / `on_span_end` を呼び出す。`emit_event()` で任意のイベントを送出できる。
+* 既定のアダプタ
+  * `ConsoleTracer` — 標準出力へ色分けログを出力
+  * `SQLiteTracer` — span / event を SQLite DB へ永続化
+  * `OtelTracer` — span をバッファリングしてカスタムエクスポーターへ渡す
 
 ```python
-# illumo_flow/tracing/factory.py
-from .console_adapter import ConsoleTracer
-from .sqlite_adapter import SQLiteTracer
-from .otel_adapter import OtelTracer
+from illumo_flow import FlowRuntime, ConsoleTracer, SQLiteTracer, OtelTracer
 
-def make_tracer(kind: str | None = None, **kwargs):
-    # 優先順位: CLI > YAML（環境変数は使用しない）
-    resolved = kind or kwargs.get("kind", "console")
-    if resolved == "console":
-        return ConsoleTracer(**kwargs)
-    if resolved == "sqlite":
-        return SQLiteTracer(db_path=kwargs.get("db_path", "illumo_trace.db"))
-    if resolved == "otel":
-        return OtelTracer(
-            service_name=kwargs.get("service_name", "illumo-flow"),
-            exporter_endpoint=kwargs.get("exporter_endpoint")
-        )
-    raise ValueError(f"Unknown tracer: {resolved}")
+# Console
+FlowRuntime.configure(tracer=ConsoleTracer())
+
+# SQLite
+FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
+
+# OTEL
+FlowRuntime.configure(tracer=OtelTracer(service_name="illumo-flow", exporter=my_exporter))
 ```
 
-* **CLI**: `illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317`
-* **YAML**: 下 §4 参照。
-* **既定挙動**: `FlowRuntime.configure()` を呼ばない場合でも `FlowRuntime.current()` が `ConsoleTracer` を返し、色分けログで即デバッグできる。`FlowRuntime.configure(tracer=...)` を呼ぶとプロセス全体の既定トレーサーが切り替わるが、ノード個別に tracer を指定した場合はそちらが優先される。
-
-**命名規約**
-
-
-# illumo_flow/tracing/factory.py
-
-from .console import ConsoleTracer
-from .sqlite import SQLiteTracer
-from .otel import OtelTracer
-
-def make_tracer(kind: str | None = None, **kwargs):
-# 優先順位: CLI > YAML（環境変数は使用しない）
-resolved = kind or kwargs.get("kind", "console")
-if resolved == "console":
-return ConsoleTracer(**kwargs)
-if resolved == "sqlite":
-return SQLiteTracer(db_path=kwargs.get("db_path", "illumo_trace.db"))
-if resolved == "otel":
-return OtelTracer(
-service_name=kwargs.get("service_name", "illumo-flow"),
-exporter_endpoint=kwargs.get("exporter_endpoint")
-)
-raise ValueError(f"Unknown tracer: {resolved}")
-
+CLI オプション例:
+```bash
+illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db
+illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
 ```
-- **CLI**: `illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317`
-- **YAML**: 下 §4 参照。python
-# illumo_flow/tracing/factory.py
-import os
-from .console import ConsoleTracer
-from .sqlite import SQLiteTracer
-from .otel import OtelTracer
-
-def make_tracer(kind: str | None = None, **kwargs):
-    kind = kind or os.getenv("ILLUMO_TRACER", "console")
-    if kind == "console":
-        return ConsoleTracer(**kwargs)
-    if kind == "sqlite":
-        return SQLiteTracer(db_path=kwargs.get("db_path", "illumo_trace.db"))
-    if kind == "otel":
-        return OtelTracer(
-            service_name=kwargs.get("service_name", "illumo-flow"),
-            exporter_endpoint=kwargs.get("exporter_endpoint")  # http://localhost:4317 等
-        )
-    raise ValueError(f"Unknown tracer: {kind}")
-```
-
-* **CLI**: `illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317`
-* **ENV**: `ILLUMO_TRACER=sqlite`, `ILLUMO_TRACER_db_path=./trace.db`
-* **YAML**: 下 §4 参照。
 
 ### 3.3 Policy インターフェース
 

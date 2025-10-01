@@ -30,3 +30,4 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_flow_examples.py::test_console_tracer_emits_flow_and_node_spans — Verifies console tracer outputs span lifecycle messages
 - [x] tests/test_flow_examples.py::test_sqlite_tracer_persists_spans — Confirms SQLite tracer records span rows for flow/node execution
 - [x] tests/test_flow_examples.py::test_otel_tracer_exports_spans — Ensures Otel tracer forwards span payloads to the configured exporter
+- [ ] CLI manual check — Run `illumo run` with `--tracer` / Policy overrides and confirm spans & policy behaviour interactively
