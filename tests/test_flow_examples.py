@@ -549,3 +549,23 @@ def test_get_llm_appends_v1_suffix_when_missing():
 def test_get_llm_keeps_existing_v1_suffix():
     client = get_llm("openai", "dummy-model", base_url="http://localhost:1234/v1")
     assert getattr(client, "base_url", None) == "http://localhost:1234/v1"
+
+
+def test_get_llm_defaults_to_openai_when_unspecified():
+    client = get_llm(None, "gpt-4.1-mini")
+    assert getattr(client, "provider", None) == "openai"
+
+
+def test_get_llm_infers_anthropic_from_model_name():
+    client = get_llm(None, "claude-3-sonnet")
+    assert getattr(client, "provider", None) == "anthropic"
+
+
+def test_get_llm_infers_google_from_model_name():
+    client = get_llm(None, "gemini-pro")
+    assert getattr(client, "provider", None) == "google"
+
+
+def test_get_llm_respects_explicit_provider_priority():
+    client = get_llm("lmstudio", "openai/gpt-oss-20b", base_url="http://192.168.11.16:1234")
+    assert getattr(client, "provider", None) == "lmstudio"

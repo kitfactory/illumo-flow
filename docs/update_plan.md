@@ -4,7 +4,7 @@
 
 ## 調査フェーズ
 - [x] Flow/Node 実行境界と CLI・YAML ローダーの実装を調査し、Agent/Tracer/Policy を差し込める拡張ポイントを洗い出す
-- [ ] `get_llm()` など既存の LLM 取得経路と OpenAI Agents SDK の接続方式を比較し、モデル解決順序（OpenAI→Anthropic→Google→LMStudio→Ollama→OpenRouter）を再確認する
+- [x] `get_llm()` など既存の LLM 取得経路と OpenAI Agents SDK の接続方式を比較し、モデル解決順序（OpenAI→Anthropic→Google→LMStudio→Ollama→OpenRouter）を再確認する
 - [ ] LLM テスト方針として OpenAI `gpt-4.1-nano` を標準、LMStudio `openai/gpt-oss-20b`（`http://192.168.11.16:1234`）を別プロバイダ検証に用い、Google/Anthropic/Ollama/OpenRouter は実装のみとする
 
 ## Agent クラス実装とテスト
