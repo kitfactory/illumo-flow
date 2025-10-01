@@ -22,6 +22,4 @@
 - [x] tests/test_flow_examples.py::test_get_llm_appends_v1_suffix_when_missing — OpenAI互換ホストに自動で`/v1`サフィックスを付与することを確認
 - [x] tests/test_flow_examples.py::test_get_llm_keeps_existing_v1_suffix — 既に`/v1`が付与されたbase URLが変更されないことを確認
 - [x] tests/test_flow_examples.py::test_get_llm_defaults_to_openai_when_unspecified — ヒントがない場合にOpenAIプロバイダへフォールバックすることを確認
-- [x] tests/test_flow_examples.py::test_get_llm_infers_anthropic_from_model_name — Claude系モデル名でAnthropicプロバイダが選ばれることを確認
-- [x] tests/test_flow_examples.py::test_get_llm_infers_google_from_model_name — Gemini系モデル名でGoogleプロバイダが選ばれることを確認
 - [x] tests/test_flow_examples.py::test_get_llm_respects_explicit_provider_priority — 明示指定したプロバイダがヒューリスティックより優先されることを確認

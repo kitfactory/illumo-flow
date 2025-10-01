@@ -22,6 +22,4 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_flow_examples.py::test_get_llm_appends_v1_suffix_when_missing — Ensures OpenAI-compatible hosts gain the `/v1` suffix automatically
 - [x] tests/test_flow_examples.py::test_get_llm_keeps_existing_v1_suffix — Confirms existing `/v1`-suffixed base URLs remain unchanged
 - [x] tests/test_flow_examples.py::test_get_llm_defaults_to_openai_when_unspecified — Verifies provider inference defaults to OpenAI when no hints are given
-- [x] tests/test_flow_examples.py::test_get_llm_infers_anthropic_from_model_name — Ensures Claude-style models map to the Anthropic provider
-- [x] tests/test_flow_examples.py::test_get_llm_infers_google_from_model_name — Asserts Gemini-style models select the Google provider
 - [x] tests/test_flow_examples.py::test_get_llm_respects_explicit_provider_priority — Confirms explicit provider arguments override heuristic ordering

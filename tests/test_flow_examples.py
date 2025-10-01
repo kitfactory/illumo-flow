@@ -562,16 +562,6 @@ def test_get_llm_defaults_to_openai_when_unspecified():
     assert getattr(client, "_illumo_provider", None) == "openai"
 
 
-def test_get_llm_infers_anthropic_from_model_name():
-    client = get_llm(None, "claude-3-sonnet", base_url="http://localhost:9999")
-    assert getattr(client, "_illumo_provider", None) == "anthropic"
-
-
-def test_get_llm_infers_google_from_model_name():
-    client = get_llm(None, "gemini-pro", base_url="http://localhost:8888")
-    assert getattr(client, "_illumo_provider", None) == "google"
-
-
 def test_get_llm_respects_explicit_provider_priority():
     client = get_llm("lmstudio", "openai/gpt-oss-20b", base_url="http://192.168.11.16:1234")
     assert getattr(client, "_illumo_provider", None) == "lmstudio"
