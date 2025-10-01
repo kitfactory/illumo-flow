@@ -176,6 +176,44 @@ routing = router._execute({}, ctx)
 score = review._execute({}, ctx)
 ```
 
+### トレーサー設定
+```python
+from illumo_flow import FlowRuntime, ConsoleTracer, SQLiteTracer, OtelTracer
+
+# ConsoleTracer はデフォルト。FlowRuntime.configure を呼ばなくても色分けログが出力される
+FlowRuntime.configure(tracer=ConsoleTracer())
+
+# SQLiteTracer は span / event を SQLite に永続化
+FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
+
+# OtelTracer は span を外部エクスポーターへ送信
+FlowRuntime.configure(
+    tracer=OtelTracer(service_name="illumo-flow", exporter=my_exporter)
+)
+```
+
+CLI でも指定可能です。
+```bash
+illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db
+illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
+```
+
+### ポリシー設定
+`Policy` を使うと fail-fast / retry / timeout / on_error を宣言的に制御できます。
+```python
+from illumo_flow import FlowRuntime, Policy, Retry, OnError
+
+FlowRuntime.configure(
+    policy=Policy(
+        fail_fast=True,
+        timeout="15s",
+        retry=Retry(max_attempts=2, delay="500ms", mode="exponential"),
+        on_error=OnError(action="goto", target="fallback"),
+    )
+)
+```
+各ノードの `policy` 設定でグローバル設定を上書きできます。
+
 ```python
 from illumo_flow import Flow
 

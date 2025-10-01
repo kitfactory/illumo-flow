@@ -177,6 +177,44 @@ routing = router._execute({}, ctx)        # Routing(target='Ship'| 'Refine', rea
 score = review._execute({}, ctx)          # numeric score or structured JSON field
 ```
 
+### Tracer Configuration
+```python
+from illumo_flow import FlowRuntime, ConsoleTracer, SQLiteTracer, OtelTracer
+
+# Console tracer (default when FlowRuntime.configure is not called)
+FlowRuntime.configure(tracer=ConsoleTracer())
+
+# SQLite tracer persists spans and events to a database
+FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
+
+# OTEL tracer forwards spans to a custom exporter
+FlowRuntime.configure(
+    tracer=OtelTracer(service_name="illumo-flow", exporter=my_exporter)
+)
+```
+
+CLI からも切り替え可能です。
+```bash
+illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db
+illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
+```
+
+### Policy Configuration
+`Policy` で fail-fast／retry／timeout／on_error を宣言的に指定できます。
+```python
+from illumo_flow import FlowRuntime, Policy, Retry, OnError
+
+FlowRuntime.configure(
+    policy=Policy(
+        fail_fast=True,
+        timeout="15s",
+        retry=Retry(max_attempts=2, delay="500ms", mode="exponential"),
+        on_error=OnError(action="goto", target="fallback"),
+    )
+)
+```
+ノード側で `policy` を設定するとグローバルポリシーを上書きできます。
+
 ### Expressions
 - `$ctx.*` accesses the shared context (e.g. `$ctx.data.raw`). Writing `ctx.*` or the shorthand `$.path` is automatically normalized to the same form.
 - `$payload.*` reads from `context["payloads"]`
