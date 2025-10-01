@@ -113,6 +113,13 @@ flow:
 
 `context.inputs.callable` supplies the Python callable path for each node. Literal strings are imported at build time, while expressions (e.g. `$ctx.registry.my_func`) are evaluated during execution.
 
+## Module Layout
+- `illumo_flow.core` — Flow/Node orchestration primitives and DSL/YAML loaders
+- `illumo_flow.policy` — Retry, timeout, and on-error models used by the runtime
+- `illumo_flow.runtime` — Global runtime configuration, including `FlowRuntime` and `get_llm`
+- `illumo_flow.tracing` — Console/SQLite/OTel tracer adapters implementing the Agents SDK contract
+- `illumo_flow.llm` — Default LLM client helpers shared across Agent integrations
+
 ### Expressions
 - `$ctx.*` accesses the shared context (e.g. `$ctx.data.raw`). Writing `ctx.*` or the shorthand `$.path` is automatically normalized to the same form.
 - `$payload.*` reads from `context["payloads"]`

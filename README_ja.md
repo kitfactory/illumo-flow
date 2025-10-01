@@ -113,6 +113,13 @@ flow:
 
 各ノードの Python 関数は `context.inputs.callable` で指定します。文字列リテラルはビルド時にインポートされ、`$ctx.registry.func` のような式は実行時に解決されます。
 
+## モジュール構成
+- `illumo_flow.core` — フロー／ノードのオーケストレーションと DSL・YAML ローダー
+- `illumo_flow.policy` — リトライ・タイムアウト・on_error を表すポリシーモデル群
+- `illumo_flow.runtime` — `FlowRuntime` と `get_llm` を含むグローバル設定レイヤー
+- `illumo_flow.tracing` — Agents SDK 互換の Console／SQLite／OTel トレーサーアダプタ
+- `illumo_flow.llm` — Agent 連携で共有する標準 LLM クライアントヘルパー
+
 ```python
 from illumo_flow import Flow
 
