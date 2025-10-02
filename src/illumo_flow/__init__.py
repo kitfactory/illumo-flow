@@ -12,13 +12,14 @@ from .core import (
     RoutingNode,
 )
 from .policy import OnError, Policy, Retry
-from .runtime import FlowRuntime, get_llm
+from .runtime import FlowRuntime, RuntimeExecutionReport, get_llm
 from .tracing import ConsoleTracer, OtelTracer, SQLiteTracer
 from .nodes import Agent, EvaluationAgent, RouterAgent
 
 __all__ = [
     "Flow",
     "FlowRuntime",
+    "RuntimeExecutionReport",
     "get_llm",
     "Policy",
     "Retry",

@@ -32,6 +32,7 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_flow_examples.py::test_otel_tracer_exports_spans — Ensures Otel tracer forwards span payloads to the configured exporter
 - [x] tests/test_flow_examples.py::test_cli_run_happy_path — Validates `illumo run` happy path using JSON context loading
 - [x] tests/test_flow_examples.py::test_cli_run_reports_failure — Ensures CLI surfaces flow failures with non-zero exit codes
+- [x] tests/test_flow_examples.py::test_runtime_execution_report_captures_failure — Captures failure metadata via `RuntimeExecutionReport`
 - [x] CLI manual check — Run `illumo run` with `--tracer` / Policy overrides and confirm spans & policy behaviour interactively
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_collects_selected_files — Verifies WorkspaceInspectorNode records previews for selected files
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_filters_by_extension — Ensures disallowed extensions are excluded with reasons
@@ -47,3 +48,5 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_tracing_db.py::test_sqlite_trace_reader_filters_by_trace_id — Filters spans by trace identifier
 - [x] tests/test_tracing_db.py::test_cli_trace_list_with_traceql — Exercises TraceQL list pipeline for trace metadata
 - [x] tests/test_tracing_db.py::test_cli_trace_search_by_attribute — Filters spans via TraceQL attribute equality
+- [x] tests/test_tracing_db.py::test_cli_trace_show_json_format — Verifies `trace show --format json` includes timeout metadata
+- [x] tests/test_tracing_db.py::test_cli_trace_search_timeout_only — Confirms `trace search --timeout-only` returns empty results when no timeouts exist

@@ -41,7 +41,14 @@ illumo run flow_launch.yaml --context '{"payload": {}}' --tracer otel --service-
 # TraceQL 風クエリでトレースを検索
 illumo trace list --traceql 'traces{} | pick(trace_id, root_service, start_time) | limit 5'
 illumo trace search --traceql 'span.attributes["node_id"] == "inspect"'
+illumo trace show --traceql 'trace_id == "TRACE"' --format tree
+
+# 失敗サマリとタイムアウト span を抽出
+illumo run flow_launch.yaml --context @ctx.json --report-path logs/failure.json --log-dir ./logs
+illumo trace search --timeout-only --format json
 ```
+
+`illumo run` は失敗時にトレース ID / 失敗ノード / ポリシー情報を含むサマリを表示します。`--report-path` / `--report-format` で JSON / Markdown のレポートを出力し、`--log-dir` で `runtime_execution.log` の保存先を切り替えられます。`trace list` / `trace show` / `trace search` は `--format table|json|markdown` を受け付け、`trace show --format tree` で DAG 表示、`trace search --timeout-only` でタイムアウト済み span を抽出できます。
 
 ## トレーサーの見どころ
 - ConsoleTracer は `[FLOW]` span を白、`[NODE]` span をシアンで表示し、Agent の instruction/input/response は黄・青・緑で色分けします。

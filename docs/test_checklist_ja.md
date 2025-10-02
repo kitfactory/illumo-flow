@@ -32,6 +32,7 @@
 - [x] tests/test_flow_examples.py::test_otel_tracer_exports_spans — OtelTracerがエクスポーターへspanを送信することを確認
 - [x] tests/test_flow_examples.py::test_cli_run_happy_path — JSONコンテキスト読取での `illumo run` ハッピーパスを検証
 - [x] tests/test_flow_examples.py::test_cli_run_reports_failure — CLIが失敗時に非ゼロ終了コードを返すことを確認
+- [x] tests/test_flow_examples.py::test_runtime_execution_report_captures_failure — 失敗時に RuntimeExecutionReport がメタデータを記録することを確認
 - [x] CLI手動確認 — `illumo run` による `--tracer`／Policy 上書きの動作確認を実施
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_collects_selected_files — WorkspaceInspectorNode が選択ファイルのプレビューを取得することを確認
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_filters_by_extension — 許可外拡張子が除外され理由が記録されることを確認
@@ -47,3 +48,5 @@
 - [x] tests/test_tracing_db.py::test_sqlite_trace_reader_filters_by_trace_id — trace_id で span をフィルタできることを確認
 - [x] tests/test_tracing_db.py::test_cli_trace_list_with_traceql — TraceQL の list パイプラインでトレースメタデータを検証
 - [x] tests/test_tracing_db.py::test_cli_trace_search_by_attribute — TraceQL 属性条件で span をフィルタできることを確認
+- [x] tests/test_tracing_db.py::test_cli_trace_show_json_format — `trace show --format json` が timeout メタデータを含むことを確認
+- [x] tests/test_tracing_db.py::test_cli_trace_search_timeout_only — `trace search --timeout-only` でタイムアウトなしの場合に結果が空となることを確認

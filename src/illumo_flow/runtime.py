@@ -2,11 +2,37 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Mapping, MutableMapping, Optional, Union
 
 from .llm import _apply_normalized_base_url, _default_llm_factory, _normalize_llm_base_url
-from .policy import Policy
+from .policy import Policy, PolicyValidator
 from .tracing import ConsoleTracer
+
+if TYPE_CHECKING:  # pragma: no cover - typing helper/型ヒント専用
+    from .core import Flow
+
+
+@dataclass
+class RuntimeExecutionReport:
+    """Summary object capturing flow execution failure details./フロー実行の失敗詳細を保持するサマリ"""
+
+    trace_id: Optional[str] = None
+    failed_node_id: Optional[str] = None
+    summary: Optional[str] = None
+    policy_snapshot: Mapping[str, Any] = field(default_factory=dict)
+    context_digest: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Mapping[str, Any]:
+        """Return a JSON-serialisable mapping./JSON 化しやすい辞書を返す"""
+
+        return {
+            "trace_id": self.trace_id,
+            "failed_node_id": self.failed_node_id,
+            "summary": self.summary,
+            "policy_snapshot": dict(self.policy_snapshot),
+            "context_digest": dict(self.context_digest),
+        }
 
 
 class FlowRuntime:
@@ -19,11 +45,11 @@ class FlowRuntime:
         self,
         *,
         tracer: Any = None,
-        policy: Optional[Policy] = None,
+        policy: Optional[Union[Policy, Mapping[str, Any]]] = None,
         llm_factory: Optional[Callable[..., Any]] = None,
     ) -> None:
         self.tracer = tracer
-        self.policy = policy or Policy()
+        self.policy = PolicyValidator.normalize(policy, base=None)
         self.llm_factory = llm_factory
 
     @classmethod
@@ -35,10 +61,10 @@ class FlowRuntime:
         cls,
         *,
         tracer: Any = None,
-        policy: Optional[Policy] = None,
+        policy: Optional[Union[Policy, Mapping[str, Any]]] = None,
         llm_factory: Optional[Callable[..., Any]] = None,
     ) -> "FlowRuntime":
-        cls._global = cls(tracer=tracer, policy=policy or Policy(), llm_factory=llm_factory)
+        cls._global = cls(tracer=tracer, policy=policy, llm_factory=llm_factory)
         return cls._global
 
     @classmethod
@@ -50,6 +76,24 @@ class FlowRuntime:
     def get_llm(self, provider: Optional[str], model: str, **kwargs: Any) -> Any:
         factory = self.llm_factory or _default_llm_factory
         return factory(provider=provider, model=model, **kwargs)
+
+    def run(
+        self,
+        flow: "Flow",
+        context: Optional[MutableMapping[str, Any]] = None,
+        *,
+        user_input: Any = None,
+        report: Optional[RuntimeExecutionReport] = None,
+    ) -> MutableMapping[str, Any]:
+        previous = self.__class__._global
+        self.__class__._global = self
+        try:
+            return flow.run(context, user_input=user_input, report=report)
+        finally:
+            if previous is None:
+                self.__class__._global = None
+            else:
+                self.__class__._global = previous
 
 
 def get_llm(
@@ -74,5 +118,6 @@ def get_llm(
 
 __all__ = [
     "FlowRuntime",
+    "RuntimeExecutionReport",
     "get_llm",
 ]

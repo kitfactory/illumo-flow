@@ -35,6 +35,7 @@ from illumo_flow import (
     ConsoleTracer,
     SQLiteTracer,
     OtelTracer,
+    RuntimeExecutionReport,
 )
 from illumo_flow.core import get_llm
 from examples import ops
@@ -502,6 +503,42 @@ def test_policy_on_error_continue_moves_forward():
     assert any(step.get("status") == "continue" for step in fail_steps)
 
 
+def test_runtime_execution_report_captures_failure():
+    fail_node = FunctionNode(
+        config=NodeConfig(
+            name="Fail",
+            setting={
+                "callable": {"type": "string", "value": "tests.test_flow_examples.fn_policy_fail"},
+            },
+        )
+    )
+    flow = Flow.from_dsl(nodes={"Fail": fail_node}, entry="Fail", edges=[])
+
+    previous_runtime = FlowRuntime.current()
+    FlowRuntime.configure(
+        tracer=ConsoleTracer(stream=io.StringIO()),
+        policy=Policy(),
+        llm_factory=previous_runtime.llm_factory,
+    )
+
+    report = RuntimeExecutionReport()
+    try:
+        with pytest.raises(RuntimeError):
+            flow.run({}, report=report)
+    finally:
+        FlowRuntime.configure(
+            tracer=previous_runtime.tracer,
+            policy=previous_runtime.policy,
+            llm_factory=previous_runtime.llm_factory,
+        )
+
+    assert report.trace_id
+    assert report.failed_node_id == "Fail"
+    assert report.summary == "boom"
+    assert report.policy_snapshot.get("fail_fast") is True
+    assert "payload_preview" in report.context_digest
+
+
 def test_policy_on_error_goto_routes_to_target():
     fail_node = FunctionNode(
         config=NodeConfig(
@@ -849,10 +886,22 @@ def test_cli_run_reports_failure(tmp_path: Path) -> None:
             str(flow_path),
             "--context",
             "{}",
+            "--log-dir",
+            str(tmp_path / "logs"),
         ],
         stdout=stdout,
         stderr=stderr,
     )
 
     assert exit_code == 1
-    assert "Flow execution failed" in stderr.getvalue()
+    message = stderr.getvalue()
+    assert "Flow failed." in message
+    assert "trace_id:" in message
+    assert "failed_node: boom" in message
+    assert "reason: boom" in message
+
+    log_path = tmp_path / "logs" / "runtime_execution.log"
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line]
+    assert entries
+    assert entries[-1]["failed_node_id"] == "boom"

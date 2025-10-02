@@ -16,18 +16,20 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping,
 from .policy import (
     OnError,
     Policy,
+    PolicyValidationError,
+    PolicyValidator,
     Retry,
     _clone_policy,
-    _merge_policy,
     _parse_duration_seconds,
     _record_node_error,
 )
-from .runtime import FlowRuntime, get_llm
+from .runtime import FlowRuntime, RuntimeExecutionReport, get_llm
 from .tracing import ConsoleTracer, OtelTracer, SQLiteTracer, SpanTracker, emit_event
 
 
 _TEMPLATE_PATTERN = re.compile(r"\{\{\s*(.+?)\s*\}\}")
 _EXPRESSION_PREFIXES = ("ctx", "payload", "joins", "env")
+_LAST_ERROR_KEY = "_illumo_last_error"
 
 
 
@@ -201,6 +203,50 @@ def _set_to_path(mapping: MutableMapping[str, Any], path: Optional[str], value: 
             current[part] = next_item
         current = next_item
     current[parts[-1]] = value
+
+
+def _summarize_value(value: Any, *, limit: int = 200) -> str:
+    try:
+        serialized = json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:  # noqa: BLE001 - fallback to repr/リプライズにフォールバック
+        serialized = repr(value)
+    if len(serialized) > limit:
+        return f"{serialized[: limit - 3]}..."
+    return serialized
+
+
+def _policy_snapshot(policy: Policy) -> Dict[str, Any]:
+    return {
+        "fail_fast": policy.fail_fast,
+        "timeout": policy.timeout,
+        "retry": {
+            "max_attempts": policy.retry.max_attempts,
+            "delay": policy.retry.delay,
+            "mode": policy.retry.mode,
+        },
+        "on_error": {
+            "action": policy.on_error.action,
+            "target": policy.on_error.target,
+        },
+    }
+
+
+def _context_failure_digest(context: MutableMapping[str, Any], node_id: Optional[str]) -> Dict[str, Any]:
+    payload_source = context.get("payloads", {}) if node_id else {}
+    payload_value = payload_source.get(node_id) if node_id else None
+    payload_preview = _summarize_value(payload_value)
+    errors = context.get("errors", [])
+    last_error = errors[-1] if errors else None
+    digest: Dict[str, Any] = {
+        "payload_preview": payload_preview,
+        "steps": len(context.get("steps", [])),
+    }
+    if last_error:
+        digest["last_error"] = {
+            "node_id": last_error.get("node_id"),
+            "message": last_error.get("message"),
+        }
+    return digest
 
 
 def _import_object(path: str) -> Any:
@@ -1168,6 +1214,8 @@ class Flow:
         self,
         context: Optional[MutableMapping[str, Any]] = None,
         user_input: Any = None,
+        *,
+        report: Optional[RuntimeExecutionReport] = None,
     ) -> Any:
         runtime = FlowRuntime.current()
         context = _ensure_context(context)
@@ -1183,6 +1231,13 @@ class Flow:
         tracker = SpanTracker(tracer)
         flow_span = tracker.start_span(kind="flow", name=self.entry_id, attributes={"entry": self.entry_id})
 
+        if report is not None:
+            report.trace_id = tracker.trace_id
+            report.failed_node_id = None
+            report.summary = None
+            report.policy_snapshot = {}
+            report.context_digest = {}
+
         ready = deque([self.entry_id])
         remaining = dict(self.dependency_counts)
         completed: Set[str] = set()
@@ -1191,6 +1246,8 @@ class Flow:
         max_steps_env = os.environ.get("FLOW_DEBUG_MAX_STEPS")
         max_steps = int(max_steps_env) if max_steps_env else None
         step_counter = 0
+        current_node_id: Optional[str] = None
+        current_policy_snapshot: Optional[Dict[str, Any]] = None
 
         try:
             while ready:
@@ -1210,6 +1267,7 @@ class Flow:
                     continue
 
                 node = self.nodes[node_id]
+                current_node_id = node_id
                 context["steps"].append({"node_id": node_id, "status": "start"})
 
                 node_span = tracker.start_span(
@@ -1230,6 +1288,14 @@ class Flow:
                             input_payload = resolved_inputs
 
                     combined_policy = self._resolve_policy_for_node(runtime.policy, node)
+                    current_policy_snapshot = _policy_snapshot(combined_policy)
+                    tracker.set_span_attributes(
+                        node_span,
+                        {
+                            "policy_snapshot": current_policy_snapshot,
+                            "input_preview": _summarize_value(input_payload),
+                        },
+                    )
 
                     status, raw_result, goto_target = self._execute_node_with_policy(
                         node=node,
@@ -1237,7 +1303,32 @@ class Flow:
                         context=context,
                         policy=combined_policy,
                     )
+                    policy_error_info = context.pop(_LAST_ERROR_KEY, None)
+                    if policy_error_info:
+                        meta_attributes = {
+                            "handled_error": True,
+                            "failure_type": policy_error_info.get("exception_type"),
+                            "failure_summary": policy_error_info.get("message"),
+                        }
+                        if policy_error_info.get("timeout"):
+                            meta_attributes["timeout"] = True
+                        tracker.set_span_attributes(node_span, meta_attributes)
                 except Exception as exc:
+                    if report is not None:
+                        report.trace_id = tracker.trace_id
+                        report.failed_node_id = current_node_id
+                        report.summary = str(exc)
+                        report.policy_snapshot = dict(current_policy_snapshot or {})
+                        report.context_digest = _context_failure_digest(context, current_node_id)
+                    tracker.set_span_attributes(
+                        node_span,
+                        {
+                            "failure_summary": str(exc),
+                            "failure_type": exc.__class__.__name__,
+                            "failed_node": node_id,
+                            "timeout": isinstance(exc, TimeoutError),
+                        },
+                    )
                     tracker.emit_event(
                         event_type="node.error",
                         level="error",
@@ -1301,6 +1392,7 @@ class Flow:
                 context["steps"].append({"node_id": node_id, "status": status})
                 tracker.end_span(node_span, status="OK")
                 completed.add(node_id)
+                current_policy_snapshot = None
 
                 branch_keys: Optional[Set[str]] = None
                 if routing_entries is not None:
@@ -1366,6 +1458,13 @@ class Flow:
                         in_queue.add(target)
 
         except Exception as exc:
+            if report is not None and not report.failed_node_id:
+                report.trace_id = tracker.trace_id
+                report.failed_node_id = current_node_id
+                report.summary = str(exc)
+                if current_policy_snapshot is not None:
+                    report.policy_snapshot = dict(current_policy_snapshot)
+                report.context_digest = _context_failure_digest(context, current_node_id)
             tracker.end_span(flow_span, status="ERROR", error=str(exc))
             raise
         else:
@@ -1400,8 +1499,20 @@ class Flow:
 
     def _resolve_policy_for_node(self, runtime_policy: Policy, node: Node) -> Policy:
         base_policy = _clone_policy(runtime_policy)
+        try:
+            PolicyValidator.validate(base_policy)
+        except PolicyValidationError as exc:
+            raise FlowError(f"Runtime policy is invalid: {exc}") from exc
+
         override = node.policy_override() if hasattr(node, "policy_override") else None
-        return _merge_policy(base_policy, override)
+        if override is None:
+            return base_policy
+        try:
+            return PolicyValidator.normalize(override, base=base_policy)
+        except PolicyValidationError as exc:
+            raise FlowError(
+                f"Invalid policy override for node '{node.node_id}': {exc}"
+            ) from exc
 
     def _execute_node_with_policy(
         self,
@@ -1469,6 +1580,12 @@ class Flow:
             message=str(exc),
             attributes={"node_id": node.node_id},
         )
+        context[_LAST_ERROR_KEY] = {
+            "node_id": node.node_id,
+            "exception_type": exc.__class__.__name__,
+            "message": str(exc),
+            "timeout": isinstance(exc, TimeoutError),
+        }
         action = (policy.on_error.action if policy.on_error else "stop").lower()
         if action == "stop" and policy.fail_fast:
             raise exc

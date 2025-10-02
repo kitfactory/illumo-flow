@@ -26,6 +26,8 @@ FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
 FlowRuntime.configure(tracer=OtelTracer(exporter=my_exporter))
 ```
 
+`illumo run` emits a failure digest containing the trace ID, failing node, and policy snapshot; `--report-path` / `--report-format` persist that data while `--log-dir` appends JSON lines to `runtime_execution.log`. Trace inspection commands accept `--format json|markdown|tree` for alternate renderings and `--timeout-only` to zero in on spans flagged with the timeout attribute.
+
 CLI switches too:
 ```bash
 illumo run flow_launch.yaml --context '{"payload": {}}' --tracer sqlite --trace-db ./trace.db
@@ -34,6 +36,11 @@ illumo run flow_launch.yaml --context '{"payload": {}}' --tracer otel --service-
 # Query stored traces with TraceQL-inspired filters
 illumo trace list --traceql 'traces{} | pick(trace_id, root_service, start_time) | limit 5'
 illumo trace search --traceql 'span.attributes["node_id"] == "inspect"'
+illumo trace show --traceql 'trace_id == "TRACE"' --format tree
+
+# Capture failure reports and timeout spans
+illumo run flow_launch.yaml --context @ctx.json --report-path logs/failure.json --log-dir ./logs
+illumo trace search --timeout-only --format json
 ```
 
 ## Tracer insights

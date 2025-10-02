@@ -122,7 +122,14 @@ illumo run examples/multi_agent/chat_bot/chatbot_flow.yaml --context '{"chat": {
 # TraceQL 風クエリでトレースを検索
 illumo trace list --traceql 'traces{} | pick(trace_id, root_service, start_time) | limit 10'
 illumo trace search --traceql 'span.attributes["node_id"] == "inspect"'
+illumo trace show --traceql 'trace_id == "TRACE_ID"' --format json --no-events
+
+# 失敗レポートとタイムアウトフィルタ
+illumo run flow.yaml --context @ctx.json --report-path logs/failure.json --report-format markdown --log-dir logs
+illumo trace search --timeout-only --format json
 ```
+
+`illumo run` は失敗時にトレース ID・失敗ノード・ポリシー情報を含むサマリを出力します。`--report-path` / `--report-format` で JSON / Markdown レポートを保存し、`--log-dir` で `runtime_execution.log` の出力先を切り替えられます。`trace list/show/search` には `--format table|json|markdown` を追加しており、`trace show --format tree` は DAG 表示、`trace search --timeout-only` はタイムアウトした span のみを抽出します。
 
 ## YAML 設定からの構築
 設定ファイルだけでフローを定義することも可能です:

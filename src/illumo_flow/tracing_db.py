@@ -22,6 +22,8 @@ class SpanRecord:
     start_time: Optional[str]
     end_time: Optional[str]
     attributes: dict[str, Any]
+    policy_snapshot: dict[str, Any]
+    timeout: bool
 
 
 @dataclass
@@ -107,7 +109,10 @@ class SQLiteTraceReader:
         status: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[SpanRecord]:
-        query = "SELECT span_id, trace_id, parent_span_id, service_name, kind, name, attributes, status, error, start_time, end_time FROM spans"
+        query = (
+            "SELECT span_id, trace_id, parent_span_id, service_name, kind, name, attributes, "
+            "status, error, start_time, end_time, policy_snapshot, timeout FROM spans"
+        )
         conditions: List[str] = []
         params: List[Any] = []
         if span_id:
@@ -133,25 +138,59 @@ class SQLiteTraceReader:
 
         with self._connect() as conn:
             cur = conn.cursor()
-            cur.execute(query, params)
-            rows = cur.fetchall()
+            legacy = False
+            try:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+            except sqlite3.OperationalError:
+                legacy_query = (
+                    "SELECT span_id, trace_id, parent_span_id, service_name, kind, name, attributes, "
+                    "status, error, start_time, end_time FROM spans"
+                )
+                cur.execute(legacy_query, params)
+                rows = cur.fetchall()
+                legacy = True
 
-        return [
-            SpanRecord(
-                span_id=row[0],
-                trace_id=row[1],
-                parent_span_id=row[2],
-                service_name=row[3],
-                kind=row[4],
-                name=row[5],
-                attributes=self._parse_literal(row[6]),
-                status=row[7],
-                error=row[8],
-                start_time=row[9],
-                end_time=row[10],
-            )
-            for row in rows
-        ]
+        records: List[SpanRecord] = []
+        for row in rows:
+            if legacy:
+                attributes = self._parse_literal(row[6])
+                records.append(
+                    SpanRecord(
+                        span_id=row[0],
+                        trace_id=row[1],
+                        parent_span_id=row[2],
+                        service_name=row[3],
+                        kind=row[4],
+                        name=row[5],
+                        attributes=attributes,
+                        status=row[7],
+                        error=row[8],
+                        start_time=row[9],
+                        end_time=row[10],
+                        policy_snapshot={},
+                        timeout=False,
+                    )
+                )
+            else:
+                records.append(
+                    SpanRecord(
+                        span_id=row[0],
+                        trace_id=row[1],
+                        parent_span_id=row[2],
+                        service_name=row[3],
+                        kind=row[4],
+                        name=row[5],
+                        attributes=self._parse_literal(row[6]),
+                        status=row[7],
+                        error=row[8],
+                        start_time=row[9],
+                        end_time=row[10],
+                        policy_snapshot=self._parse_literal(row[11]),
+                        timeout=bool(row[12]),
+                    )
+                )
+        return records
 
     def events(
         self,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 
 from illumo_flow.tracing import SQLiteTracer, SpanTracker, emit_event
@@ -34,6 +35,8 @@ def test_sqlite_trace_reader_lists_spans_and_events(tmp_path: Path) -> None:
     span = spans[0]
     assert span.name == "demo-flow"
     assert span.status == "OK"
+    assert span.policy_snapshot == {}
+    assert span.timeout is False
 
     events = reader.events(span_id=span.span_id)
     assert events
@@ -106,3 +109,56 @@ def test_cli_trace_search_by_attribute(tmp_path: Path) -> None:
     assert not stderr.getvalue()
     assert trace_id in output
     assert "demo-flow" in output
+
+
+def test_cli_trace_show_json_format(tmp_path: Path) -> None:
+    db_path = tmp_path / "trace.db"
+    trace_id = create_trace(db_path)
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    exit_code = cli_main(
+        [
+            "trace",
+            "show",
+            trace_id,
+            "--db",
+            str(db_path),
+            "--format",
+            "json",
+            "--no-events",
+        ],
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert not stderr.getvalue()
+    payload = json.loads(stdout.getvalue())
+    assert payload[0]["timeout"] is False
+    assert payload[0]["name"] == "demo-flow"
+
+
+def test_cli_trace_search_timeout_only(tmp_path: Path) -> None:
+    db_path = tmp_path / "trace.db"
+    create_trace(db_path)
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    exit_code = cli_main(
+        [
+            "trace",
+            "search",
+            "--db",
+            str(db_path),
+            "--timeout-only",
+            "--format",
+            "json",
+        ],
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert not stderr.getvalue()
+    assert stdout.getvalue().strip() == "[]"

@@ -120,7 +120,14 @@ illumo run examples/multi_agent/chat_bot/chatbot_flow.yaml --context '{"chat": {
 # Inspect recent traces with TraceQL-inspired filters
 illumo trace list --traceql 'traces{} | pick(trace_id, root_service, start_time) | limit 10'
 illumo trace search --traceql 'span.attributes["node_id"] == "inspect"'
+illumo trace show --traceql 'trace_id == "TRACE_ID"' --format json --no-events
+
+# Capture failure metadata
+illumo run flow.yaml --context @ctx.json --report-path logs/failure.json --report-format markdown --log-dir logs
+illumo trace search --timeout-only --format json
 ```
+
+`illumo run` now emits a concise failure summary (trace ID, failing node, policy snapshot). Use `--report-path` / `--report-format` to persist the JSON/Markdown report and `--log-dir` to append entries under `runtime_execution.log`. Trace inspection commands accept `--format table|json|markdown`, while `trace show --format tree` renders a DAG view and `trace search --timeout-only` isolates timed-out spans.
 
 Clone the repo if you want to explore samples locally:
 

@@ -86,6 +86,15 @@ class SpanTracker:
         self._stack.append((span_id, span_token))
         return span_id
 
+    def set_span_attributes(self, span_id: str, attributes: Mapping[str, Any]) -> None:
+        if not attributes:
+            return
+        span = self._spans.get(span_id)
+        if span is None:
+            return
+        stored = span.setdefault("attributes", {})
+        stored.update(dict(attributes))
+
     def end_span(
         self,
         span_id: str,
@@ -309,10 +318,20 @@ class SQLiteTracer:
                     status TEXT,
                     error TEXT,
                     start_time TEXT,
-                    end_time TEXT
+                    end_time TEXT,
+                    policy_snapshot TEXT,
+                    timeout INTEGER DEFAULT 0
                 )
                 """
             )
+            for statement in (
+                "ALTER TABLE spans ADD COLUMN policy_snapshot TEXT",
+                "ALTER TABLE spans ADD COLUMN timeout INTEGER DEFAULT 0",
+            ):
+                try:
+                    cur.execute(statement)
+                except sqlite3.OperationalError:
+                    pass
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS events (
@@ -332,12 +351,16 @@ class SQLiteTracer:
     def on_span_start(self, span: Mapping[str, Any]) -> None:
         with self._lock:
             cur = self._conn.cursor()
+            attrs = span.get("attributes") or {}
+            policy_snapshot = attrs.get("policy_snapshot")
+            policy_repr = repr(policy_snapshot) if policy_snapshot is not None else None
+            timeout_flag = 1 if attrs.get("timeout") else 0
             cur.execute(
                 """
                 INSERT OR REPLACE INTO spans (
                     span_id, trace_id, parent_span_id, service_name,
-                    kind, name, attributes, start_time
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    kind, name, attributes, status, error, start_time, end_time, policy_snapshot, timeout
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     span.get("span_id"),
@@ -347,7 +370,12 @@ class SQLiteTracer:
                     span.get("kind"),
                     span.get("name"),
                     repr(span.get("attributes") or {}),
+                    span.get("status"),
+                    span.get("error"),
                     span.get("start_time"),
+                    span.get("end_time"),
+                    policy_repr,
+                    timeout_flag,
                 ),
             )
             self._conn.commit()
@@ -355,17 +383,23 @@ class SQLiteTracer:
     def on_span_end(self, span: Mapping[str, Any]) -> None:
         with self._lock:
             cur = self._conn.cursor()
+            attrs = span.get("attributes") or {}
+            policy_snapshot = attrs.get("policy_snapshot")
+            policy_repr = repr(policy_snapshot) if policy_snapshot is not None else None
+            timeout_flag = 1 if attrs.get("timeout") else 0
             cur.execute(
                 """
                 UPDATE spans
-                   SET status = ?, error = ?, end_time = ?, attributes = COALESCE(?, attributes)
+                   SET status = ?, error = ?, end_time = ?, attributes = ?, policy_snapshot = COALESCE(?, policy_snapshot), timeout = ?
                  WHERE span_id = ?
                 """,
                 (
                     span.get("status"),
                     span.get("error"),
                     span.get("end_time"),
-                    repr(span.get("attributes")) if span.get("attributes") else None,
+                    repr(attrs),
+                    policy_repr,
+                    timeout_flag,
                     span.get("span_id"),
                 ),
             )
