@@ -11,18 +11,18 @@
 
 ## ターゲット別実装サイクル（各タスクごとに繰り返す）
 1. スケルトン作成
-   - [ ] 必要なモジュール／クラスを追加・修正（責務ごとに分割）。
-   - [ ] dataclass / Protocol / NodeConfig を定義する。
+   - [x] 必要なモジュール／クラスを追加・修正（責務ごとに分割）。
+   - [x] dataclass / Protocol / NodeConfig を定義する。
 2. ユニットテスト追加
-   - [ ] 既存テストファイルにケースを追記（新規ファイルは最小限）。
-   - [ ] 対象テストファイルのみ実行（例: `pytest tests/test_workspace_inspector.py -q`）。
-   - [ ] テスト結果をテストチェックリストに記録する。
+   - [x] 既存テストファイルにケースを追記（新規ファイルは最小限）。
+   - [x] 対象テストファイルのみ実行（例: `pytest tests/test_workspace_inspector.py -q`）。
+   - [x] テスト結果をテストチェックリストに記録する。
 3. CLI 動作確認
-   - [ ] `illumo run ...` で該当 YAML を実行。
-   - [ ] ConsoleTracer / SQLiteTracer のログを確認し、問題があれば修正。
+   - [x] `illumo run ...` で該当 YAML を実行。
+   - [x] ConsoleTracer / SQLiteTracer のログを確認し、問題があれば修正。
 4. ドキュメント更新
-   - [ ] `docs/tutorials/` や README に手順・注意点を追記する。
-   - [ ] `phase2_update_requests.md` の該当項目にチェックを入れる。
+   - [x] `docs/tutorials/` や README に手順・注意点を追記する。
+   - [x] `phase2_update_requests.md` の該当項目にチェックを入れる。
 
 ## テスト運用ルール
 - [ ] 各テスト実行後に `docs/test_checklist*.md` へ結果を記録する。
@@ -31,18 +31,18 @@
 ## タスク別チェックリスト
 
 ### 1.1 コーディング補助エージェント
-- [ ] WorkspaceInspectorNode 実装 + テスト + CLI 検証。
-- [ ] PatchNode 改修 + テスト + CLI 検証。
-- [ ] TestExecutorNode 実装 + テスト + CLI 検証。
-- [ ] SummaryAgent 実装 + レポート出力確認。
-- [ ] サンプルプロジェクト（`sample_app/`）と YAML を整備。
-- [ ] ドキュメント更新（README / tutorials / examples README）。
+- [x] WorkspaceInspectorNode 実装 + テスト + CLI 検証。
+- [x] PatchNode 改修 + テスト + CLI 検証。
+- [x] TestExecutorNode 実装 + テスト + CLI 検証。
+- [x] SummaryAgent 実装 + レポート出力確認。
+- [x] サンプルプロジェクト（`sample_app/`）と YAML を整備。
+- [x] ドキュメント更新（README / tutorials / examples README）。
 
 ### 1.1 TracerDB インターフェース（SQLite / Tempo）
-- [ ] TracerDB Protocol 定義。
-- [ ] SQLiteTracerDB 実装 + テスト + CLI 検証。
-- [ ] TempoTracerDB 実装 + テスト + CLI 検証。
-- [ ] 既存トレーサーを TracerDB 化し、後方互換性を確認。
+- [x] TracerDB Protocol 定義。
+- [x] SQLiteTracerDB 実装 + テスト + CLI 検証。
+- [x] TempoTracerDB 実装 + テスト + CLI 検証。
+- [x] 既存トレーサーを TracerDB 化し、後方互換性を確認。
 - [ ] ドキュメント更新（設定例・ベストプラクティス）。
 
 ### 2. チャットボット事例
@@ -52,10 +52,10 @@
 - [ ] ドキュメント更新（チュートリアル・README）。
 
 ### 2. SummaryAgent
-- [ ] SummaryAgent 単体テスト。
-- [ ] マルチエージェントフローへの統合テスト。
-- [ ] CLI 出力／保存ファイルの確認。
-- [ ] ドキュメント更新（利用手順と出力例）。
+- [x] SummaryAgent 単体テスト。
+- [x] マルチエージェントフローへの統合テスト。
+- [x] CLI 出力／保存ファイルの確認。
+- [x] ドキュメント更新（利用手順と出力例）。
 
 ## 完了条件
 - [ ] `phase2_update_requests.md` の必須・優先タスクがすべてチェック済み。
