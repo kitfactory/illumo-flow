@@ -6,12 +6,10 @@ Use this index to explore the nine-part tutorial. Every chapter highlights a use
 Each chapter ships with paired Python and YAML examples: embed the Python snippets in applications, or run the YAML flows with `illumo run` when you want reproducible CLI scenarios.
 
 ### Developer advantages
-- Built-in abstractions handle prompt wiring, context storage, branching, and scoring so you can focus on logic instead of glue code.
-- Observability is turnkey: flip a configuration switch to jump between colorful console traces, SQLite archives, or OTEL exports.
-- Failure handling stays declarative—switch between experimental retries and production fail-fast policies without code edits.
-- CLI, YAML, and Python share the same mental model, letting prototypes graduate to production without rewrites.
-- Provider differences disappear; endpoint details such as `/v1` suffixes are normalized automatically.
-- Context doubles as a mission log, making collaboration between development and operations effortless.
+1. **Model switching stays easy**: provider quirks such as `/v1` suffixes are normalized, so OpenAI / Anthropic / LM Studio / Ollama share the same code path.
+2. **Agent flows stay under control**: a concise DSL plus explicit orchestration puts every conversational step and router decision in plain sight.
+3. **Tracing takes one toggle**: swap from colorized console spans to SQLite (and soon OTEL) to debug without ad-hoc logging.
+4. **Policies flip without code edits**: choose between lenient retries and strict fail-fast behaviour per environment straight from configuration.
 
 ## Chapters (English)
 - [01 · Introduction & Setup](01_introduction.md) — install `illumo-flow`, configure credentials, and meet FlowRuntime.

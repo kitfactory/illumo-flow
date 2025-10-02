@@ -9,12 +9,10 @@ Build LLM-driven flows without wrestling with ad-hoc scripts, and understand how
 - Shipping with CLI/YAML/Python integration so you can jump between quick runs and production use.
 
 ## Why developers love it
-- Goodbye glue code: you spend evenings crafting agent logic, not juggling prompt strings, history buffers, and ad-hoc scoring scripts.
-- Observability party tricks: flip one setting and instantly watch color-coded conversations in your terminal or a SQLite dashboard—no more print-debugging marathons.
-- Failure taming made fun: experiment with cheeky retries during prototyping, then tighten the screws for production without touching your Python files.
-- Prototype today, ship tomorrow: the same design lives in CLI, YAML, and Python, so the flow you demo in stand-up is the one that lands in prod.
-- Provider hopscotch: bounce between OpenAI, Anthropic, LMStudio, or Ollama while the runtime quietly handles `/v1` quirks for you.
-- Built-in mission log: the shared context tells the whole story, making it effortless to trace what happened and plan the next move.
+1. **Model switching stays easy**: the runtime smooths over provider quirks so OpenAI / Anthropic / LM Studio / Ollama all run with the same code—experimental setups graduate to production without friction.
+2. **Agent flows stay under control**: describe the flow in a concise DSL and orchestrate it explicitly, keeping every conversational step or router decision transparent.
+3. **Tracing is one toggle away**: switch from colorized console output to persistent storage like SQLite (and OTEL next) to debug without sprinkling print statements.
+4. **Policies flip with configuration**: adjust retries vs. fail-fast rules per environment, keeping development forgiving and production strict without modifying code.
 
 ## Setup: ready in minutes
 1. **Install**

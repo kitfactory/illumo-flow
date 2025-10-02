@@ -3,12 +3,10 @@
 Workflow orchestration primitives featuring declarative DSL wiring, routing control, and fail-fast execution.
 
 ## Why developers pick illumo-flow
-1. **Model hopping stays painless**: the runtime smooths out provider quirks (OpenAI, Anthropic, LM Studio, Ollama, …), so the same code runs from experiment to production without worrying about `/v1` suffixes or bespoke parameters.
-2. **Agent flows stay explicit**: define the flow in a tiny DSL, wire it through the orchestrator, and keep conversational steps, routers, and evaluators under tight control instead of scattering logic across scripts.
-3. **Tracing becomes fun**: flip a single setting to move from colorized console transcripts to durable SQLite trails (and OTEL exporters next), finally retiring the print-debug routine.
-4. **Policies do the heavy lifting**: relax during development with lenient retries, then tighten fail-fast rules in production purely through configuration—no code edits required.
-5. **CLI, YAML, and Python align**: prototypes, shared specs, and embedded code all read the same, making handoff between teammates effortless.
-6. **Context doubles as a mission log**: every run leaves a ready-to-inspect history, so you can trace what happened and queue follow-up actions without extra tooling.
+1. **Easily switch language models**: the runtime absorbs provider differences so OpenAI / Anthropic / LM Studio / Ollama all run with the same code—no need to worry about `/v1` suffixes or other quirks when moving from experiments to production.
+2. **Design and control agent flows with ease**: describe flows in a concise DSL, execute them through the orchestrator, and keep every conversational step or router decision under explicit control.
+3. **Trace and debug effortlessly**: toggle between colorized console logs and persistent storage like SQLite (with OTEL exporters next) to retire print-based debugging once and for all。
+4. **Flip execution policies on demand**: configure retries vs. fail-fast behavior per environment, so development stays forgiving while production remains strict—without touching your code.
 
 ## Installation
 ```bash
