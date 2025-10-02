@@ -28,6 +28,72 @@
 - 追加要望や優先順位変更が発生した場合、本ファイルを更新し、対応リストと紐付くタスクチケットを作成する。
 - フェーズ2完了時には、チェック済み項目の証跡（実行ログ・テスト結果・ドキュメント差分）をまとめ、docs/update_plan.md と整合させる。
 
+### CLI / 実行メモ
+- 現状 `illumo` CLI エントリーポイントは配布していないため、以下いずれかでフローを実行する。
+  1. **python ワンライナー**
+     ```bash
+     python - <<'PY'
+     from pathlib import Path
+     from illumo_flow.core import Flow
+
+     flow = Flow.from_config('examples/multi_agent/coding_assistant/coding_assistant.yaml')
+     context = {
+         'request': {
+             'description': 'Fix add implementation',
+             'target_root': 'examples/multi_agent/coding_assistant',
+             'tests': 'pytest -q',
+             'write': True,
+         },
+         'diff': {
+             'proposed': Path('examples/multi_agent/coding_assistant/example_diff.patch').read_text()
+         }
+     }
+     flow.run(context)
+     PY
+     ```
+  2. **uv 経由で venv を整備し editable install**
+     ```bash
+     uv run -- python -m pip install --editable .
+     uv run -- python - <<'PY'
+     from pathlib import Path
+     from illumo_flow.core import Flow
+
+     flow = Flow.from_config('examples/multi_agent/chat_bot/chatbot_flow.yaml')
+     context = {
+         'chat': {
+             'history': [
+                 {'role': 'user', 'message': '返品したいのですが'}
+             ]
+         }
+     }
+     flow.run(context)
+     PY
+     ```
+- 上記コンテキストは JSON で管理すると便利。サンプル:
+  ```json
+  {
+    "request": {
+      "description": "Fix add implementation",
+      "target_root": "examples/multi_agent/coding_assistant",
+      "tests": "pytest -q",
+      "write": true
+    },
+    "diff": {
+      "proposed": "$(cat examples/multi_agent/coding_assistant/example_diff.patch | python -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+    }
+  }
+  ```
+  ```json
+  {
+    "chat": {
+      "history": [
+        {"role": "user", "message": "返品したいのですが"}
+      ]
+    }
+  }
+  ```
+- CLI 化が必要になった場合は `python -m illumo_flow.cli` のようなエントリーポイントを導入予定。現段階では上記スクリプトで代替する。
+
 ---
 
 ## 設計付録 A: コーディング補助エージェント
