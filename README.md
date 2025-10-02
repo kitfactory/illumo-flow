@@ -8,6 +8,35 @@ Workflow orchestration primitives featuring declarative DSL wiring, routing cont
 3. **Trace and debug effortlessly**: toggle between colorized console logs and persistent storage like SQLite (with OTEL exporters next) to retire print-based debugging once and for all。
 4. **Flip execution policies on demand**: configure retries vs. fail-fast behavior per environment, so development stays forgiving while production remains strict—without touching your code.
 
+### Tracing quickstart
+```python
+from illumo_flow import FlowRuntime, SQLiteTracer
+
+FlowRuntime.configure(
+    tracer=SQLiteTracer(db_path="illumo_trace.db"),
+)
+```
+
+Forward spans to Tempo or any OTLP-compatible collector by wiring `OtelTracer` with a Tempo backend:
+
+```python
+from illumo_flow import FlowRuntime, OtelTracer
+from illumo_flow.tracing_db import TempoTracerDB
+
+FlowRuntime.configure(
+    tracer=OtelTracer(db=TempoTracerDB(exporter=my_otlp_exporter)),
+)
+```
+
+CLI からの切り替え例:
+
+```bash
+illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db
+illumo run flow.yaml --tracer otel --tracer-arg exporter=my_exporter_module:build_exporter
+```
+
+`ConsoleTracer` は即時デバッグ向け、SQLite / Tempo バックエンドは履歴保存やダッシュボード連携に適しています。
+
 ## Installation
 ```bash
 pip install illumo-flow

@@ -78,6 +78,11 @@ illumo run policy_demo.yaml --context '{"input": "payload"}'
 - リトライが発生すると ConsoleTracer に `node.retry` イベントが出力されます。
 - `goto` 指定でフォールバックノードがキューに積まれ、滑らかに回復できます。
 
+### 推奨プロファイル
+- **開発**: `Policy(fail_fast=False, retry=Retry(max_attempts=2, delay=0.2), on_error=OnError(action="continue"))` — エラーがあっても継続し、ログを見ながら改善。
+- **ステージング**: `Policy(fail_fast=False, retry=Retry(max_attempts=3, delay=0.5, mode="exponential"), timeout="10s", on_error=OnError(action="goto", target="notify"))` — 自動回復を試しつつ、繰り返し失敗は通知。
+- **本番**: `Policy(fail_fast=True, retry=Retry(max_attempts=1), timeout="5s", on_error=OnError(action="goto", target="support"))` — 失敗は即座に人や代替経路へ切り替え、影響を最小化。
+
 ## Policy レシピ集
 - **実験モード**: `fail_fast=False`、`retry=Retry(max_attempts=3, delay=0.2, mode="exponential")`、`on_error=OnError(action="continue")` で止めずに挙動を観察。
 - **本番ローンチ**: `fail_fast=True` に設定し、`on_error` で `support_escalation` ノードへ `goto` させると即座に通知に回せます。

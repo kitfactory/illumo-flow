@@ -1081,6 +1081,15 @@ class Flow:
                 return data
 
             setting_entries: Dict[str, Any] = {}
+            user_setting = cfg.get("setting")
+            if isinstance(user_setting, Mapping):
+                for key, value in user_setting.items():
+                    entry_type = None
+                    if not isinstance(value, Mapping):
+                        entry_type = NodeConfig._infer_type(value)
+                        setting_entries[key] = {"type": entry_type, "value": value}
+                    else:
+                        setting_entries[key] = value
             node_name = cfg.get("name", node_id)
             metadata = cfg.get("describe")
             if metadata is not None:

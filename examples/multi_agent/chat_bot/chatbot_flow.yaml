@@ -11,12 +11,13 @@ flow:
         outputs: $ctx.chat.greeting
     faq_router:
       type: illumo_flow.nodes.RouterAgent
+      setting:
+        choices: [FAQ, ESCALATE]
       context:
         inputs:
           prompt: |
             問い合わせ: {{ $ctx.chat.history[-1].message if $ctx.chat.history else '不明' }}
             FAQ として回答できる場合は FAQ、難しければ ESCALATE を返してください。
-        choices: [FAQ, ESCALATE]
         output_path: $ctx.chat.routing
         metadata_path: $ctx.chat.routing_reason
     faq:

@@ -8,6 +8,35 @@
 3. **トレース（記録・デバッグ）が簡単に**: 色付きコンソールの会話ログから SQLite 永続化（将来的には OTEL 連携）まで切り替え一つ。print 依存のデバッグから卒業できます。
 4. **制御管理の切り替えが簡単に**: 開発中は緩いリトライ、本番は厳格な Fail-Fast といった切替を設定だけで実現でき、コードを触らずにフローの挙動を調整できます。
 
+### トレーシングの切り替え
+```python
+from illumo_flow import FlowRuntime, SQLiteTracer
+
+FlowRuntime.configure(
+    tracer=SQLiteTracer(db_path="illumo_trace.db"),
+)
+```
+
+Tempo（OTLP）へ送信する場合は TempoTracerDB を注入します。
+
+```python
+from illumo_flow import FlowRuntime, OtelTracer
+from illumo_flow.tracing_db import TempoTracerDB
+
+FlowRuntime.configure(
+    tracer=OtelTracer(db=TempoTracerDB(exporter=my_otlp_exporter)),
+)
+```
+
+CLI からは以下のように指定できます。
+
+```bash
+illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db
+illumo run flow.yaml --tracer otel --tracer-arg exporter=my_exporter_module:build_exporter
+```
+
+ConsoleTracer は即時デバッグ用、SQLite / Tempo バックエンドは履歴保管・監視向けに活用してください。
+
 ## インストール
 ```bash
 pip install illumo-flow

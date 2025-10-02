@@ -78,6 +78,11 @@ illumo run policy_demo.yaml --context '{"input": "payload"}'
 - When retry triggers, ConsoleTracer shows `node.retry` events so you know it happened.
 - `goto` pushes the fallback node into the queue, giving you a clean recovery path.
 
+### Recommended profiles
+- **Development**: `Policy(fail_fast=False, retry=Retry(max_attempts=2, delay=0.2), on_error=OnError(action="continue"))` — keep iterating even if some nodes fail.
+- **Staging**: `Policy(fail_fast=False, retry=Retry(max_attempts=3, delay=0.5, mode="exponential"), timeout="10s", on_error=OnError(action="goto", target="notify"))` — allow automatic recovery but surface persistent issues.
+- **Production**: `Policy(fail_fast=True, retry=Retry(max_attempts=1), timeout="5s", on_error=OnError(action="goto", target="support"))` — fail fast, route to human or compensating flows.
+
 ## Policy recipes
 - **Experiment mode**: `fail_fast=False`, `retry=Retry(max_attempts=3, delay=0.2, mode="exponential")`, `on_error=OnError(action="continue")` to keep the flow running while you collect telemetry.
 - **Production launch**: `fail_fast=True`, minimal retries, and `on_error=OnError(action="goto", target="support_escalation")` so failures head straight to a notification node.

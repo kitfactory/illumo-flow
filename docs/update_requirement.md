@@ -131,15 +131,21 @@ class Tracer(Protocol):
 
 ```python
 from illumo_flow import FlowRuntime, ConsoleTracer, SQLiteTracer, OtelTracer
+from illumo_flow.tracing_db import TempoTracerDB
 
 # Console
 FlowRuntime.configure(tracer=ConsoleTracer())
 
-# SQLite
+# SQLite (TracerDB 経由)
 FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
 
-# OTEL
-FlowRuntime.configure(tracer=OtelTracer(service_name="illumo-flow", exporter=my_exporter))
+# OTEL (TempoTracerDB 経由)
+FlowRuntime.configure(
+    tracer=OtelTracer(
+        service_name="illumo-flow",
+        db=TempoTracerDB(exporter=my_exporter),
+    )
+)
 ```
 
 CLI オプション例:
@@ -201,6 +207,14 @@ FlowRuntime.configure(
     ),
 )
 ```
+
+#### 推奨プロファイル
+
+| 環境 | 推奨設定 | 意図 |
+| --- | --- | --- |
+| 開発 | `Policy(fail_fast=False, retry=Retry(max_attempts=2, delay=0.2), on_error=OnError(action="continue"))` | 手元での試行錯誤を優先し、失敗してもフローを止めない |
+| ステージング | `Policy(fail_fast=False, retry=Retry(max_attempts=3, delay=0.5, mode="exponential"), timeout="10s", on_error=OnError(action="goto", target="notify"))` | 自動復旧を試しつつ、繰り返し失敗は運用チームへ通知 |
+| 本番 | `Policy(fail_fast=True, retry=Retry(max_attempts=1), timeout="5s", on_error=OnError(action="goto", target="support"))` | 影響範囲を最小にし、即座に人または代替フローへ切り替える |
 
 #### Node 個別設定の例（YAML）
 

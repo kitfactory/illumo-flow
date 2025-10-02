@@ -15,6 +15,7 @@ Flow と Node の span を観察し、`instruction` / `input` / `response` の�
 
 ```python
 from illumo_flow import FlowRuntime, ConsoleTracer, SQLiteTracer, OtelTracer
+from illumo_flow.tracing_db import TempoTracerDB
 
 # ConsoleTracer: 色付きで instruction/input/response を表示
 FlowRuntime.configure(tracer=ConsoleTracer())
@@ -23,7 +24,12 @@ FlowRuntime.configure(tracer=ConsoleTracer())
 FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
 
 # OtelTracer: 監視基盤へエクスポート
-FlowRuntime.configure(tracer=OtelTracer(service_name="illumo-flow", exporter=my_exporter))
+FlowRuntime.configure(
+    tracer=OtelTracer(
+        service_name="illumo-flow",
+        db=TempoTracerDB(exporter=my_exporter),
+    )
+)
 ```
 
 CLI から切り替える場合:
@@ -35,8 +41,8 @@ illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://
 
 ## トレーサーの見どころ
 - ConsoleTracer は `[FLOW]` span を白、`[NODE]` span をシアンで表示し、Agent の instruction/input/response は黄・青・緑で色分けします。
-- SQLiteTracer では `spans` / `events` / `links` テーブルに記録されるため、リトライや Router の分岐と特定ノードを SQL で突き合わせられます。
-- OtelTracer は span をバッチ送信するので、`my_exporter.export(spans)` を実装して Jaeger や Tempo など OTLP 対応のコレクタに流し込みましょう。
+- SQLiteTracer は `SQLiteTracerDB` を内部に持ち、`spans` / `events` テーブルへ永続化します。SQL クエリでリトライやルーティングを後追いできます。
+- OtelTracer は `TempoTracerDB(exporter=...)` を介して OTLP エクスポーターへバッチ送信できます。
 - どのトレーサーも同じペイロードを受け取るため、切り替えてもビジネスロジックには影響しません。観測先だけが変わります。
 
 ## 実験アイデア
