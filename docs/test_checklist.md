@@ -31,3 +31,7 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_flow_examples.py::test_sqlite_tracer_persists_spans — Confirms SQLite tracer records span rows for flow/node execution
 - [x] tests/test_flow_examples.py::test_otel_tracer_exports_spans — Ensures Otel tracer forwards span payloads to the configured exporter
 - [ ] CLI manual check — Run `illumo run` with `--tracer` / Policy overrides and confirm spans & policy behaviour interactively
+- [x] tests/test_workspace_nodes.py::test_workspace_inspector_collects_selected_files — Verifies WorkspaceInspectorNode records previews for selected files
+- [x] tests/test_workspace_nodes.py::test_workspace_inspector_filters_by_extension — Ensures disallowed extensions are excluded with reasons
+- [x] tests/test_workspace_nodes.py::test_workspace_inspector_respects_max_bytes — Confirms oversized files omit previews and record exclusion reasons
+- [x] tests/test_workspace_nodes.py::test_workspace_inspector_rejects_missing_root — Raises FlowError when the target root is absent

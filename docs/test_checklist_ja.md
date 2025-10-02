@@ -31,3 +31,7 @@
 - [x] tests/test_flow_examples.py::test_sqlite_tracer_persists_spans — SQLiteTracerがspan情報を永続化することを確認
 - [x] tests/test_flow_examples.py::test_otel_tracer_exports_spans — OtelTracerがエクスポーターへspanを送信することを確認
 - [ ] CLI手動確認 — `illumo run` による `--tracer`／Policy 上書きの動作確認を実施
+- [x] tests/test_workspace_nodes.py::test_workspace_inspector_collects_selected_files — WorkspaceInspectorNode が選択ファイルのプレビューを取得することを確認
+- [x] tests/test_workspace_nodes.py::test_workspace_inspector_filters_by_extension — 許可外拡張子が除外され理由が記録されることを確認
+- [x] tests/test_workspace_nodes.py::test_workspace_inspector_respects_max_bytes — ファイルサイズ上限超過でプレビューを空にし除外理由を残すことを確認
+- [x] tests/test_workspace_nodes.py::test_workspace_inspector_rejects_missing_root — ルート不在時に FlowError が送出されることを確認
