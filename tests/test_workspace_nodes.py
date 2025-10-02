@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from illumo_flow.core import FlowError, NodeConfig
+from illumo_flow.nodes.summary import SummaryAgent
 from illumo_flow.nodes.testing import TestExecutorNode
 from illumo_flow.nodes.workspace import PatchNode, WorkspaceInspectorNode
 
@@ -174,6 +175,13 @@ def test_patch_node_write_option(tmp_path: Path) -> None:
     assert target.read_text() == updated
 
 
+def build_summary_agent(**settings: object) -> SummaryAgent:
+    config = NodeConfig(name="summary_agent", setting=settings)
+    node = SummaryAgent(config=config)
+    node.bind("summary_agent")
+    return node
+
+
 def test_test_executor_runs_pytest(tmp_path: Path) -> None:
     root = tmp_path / "sample"
     root.mkdir()
@@ -207,3 +215,30 @@ def test_test_executor_records_failures(tmp_path: Path) -> None:
 
     assert result["returncode"] == 1
     assert context["tests"]["results"]["returncode"] == 1
+
+
+def test_summary_agent_compiles_report() -> None:
+    context = {
+        "workspace": {
+            "files": [
+                {"path": "sample.py", "status": "patched", "original_content": "a", "patched_content": "b"}
+            ]
+        },
+        "tests": {
+            "results": {
+                "command": ["pytest", "-q"],
+                "returncode": 0,
+                "stdout": "1 passed in 0.01s\n",
+                "stderr": "",
+            }
+        },
+        "review": {"summary": "Looks good", "status": "OK"},
+    }
+
+    node = build_summary_agent()
+    result = node._execute(None, context)  # type: ignore[arg-type]
+
+    assert "### Files" in result["report"]
+    assert "sample.py" in result["report"]
+    assert context["summary"]["report"] == result["report"]
+    assert context["summary"]["structured"]["files"]

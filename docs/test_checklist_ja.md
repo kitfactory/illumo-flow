@@ -40,3 +40,4 @@
 - [x] tests/test_workspace_nodes.py::test_patch_node_write_option — `write` 指定時のみディスクへ適用されることを確認
 - [x] tests/test_workspace_nodes.py::test_test_executor_runs_pytest — 対象ワークスペースで pytest を実行し結果を取得できることを確認
 - [x] tests/test_workspace_nodes.py::test_test_executor_records_failures — 非ゼロ終了コードでも例外なく結果を記録することを確認
+- [x] tests/test_workspace_nodes.py::test_summary_agent_compiles_report — 作業内容・テスト結果・レビュー要約を取りまとめることを確認
