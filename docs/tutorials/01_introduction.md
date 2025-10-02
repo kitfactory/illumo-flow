@@ -14,7 +14,7 @@ Build LLM-driven flows without wrestling with ad-hoc scripts, and understand how
 - Failure taming made fun: experiment with cheeky retries during prototyping, then tighten the screws for production without touching your Python files.
 - Prototype today, ship tomorrow: the same design lives in CLI, YAML, and Python, so the flow you demo in stand-up is the one that lands in prod.
 - Provider hopscotch: bounce between OpenAI, Anthropic, LMStudio, or Ollama while the runtime quietly handles `/v1` quirks for you.
-- Built-in mission log: the shared context tells the whole story, letting your team laugh (or wince) together over how the agents reached their decision.
+- Built-in mission log: the shared context tells the whole story, so your team can review what happened quickly and capture follow-up actions together.
 
 ## Setup: ready in minutes
 1. **Install**

@@ -3,12 +3,12 @@
 Workflow orchestration primitives featuring declarative DSL wiring, routing control, and fail-fast execution.
 
 ## Why developers pick illumo-flow
-- Glue code disappears: prompt wiring, context persistence, branching, and scoring are packaged as reusable building blocks.
-- Observability is instant—toggle a config to move from colorful console traces to persistent stores or OTEL without editing business logic.
-- Failure behaviour stays declarative, so you can jump between experimental retries and production-grade safeguards in configuration alone.
-- CLI, YAML, and Python share one mental model, enabling prototypes and deployed flows to live side by side.
-- Provider quirks are normalized automatically, letting you swap between OpenAI, LMStudio, and others with the same settings.
-- Execution context doubles as a mission log, keeping development and operations aligned on what happened and why.
+1. **Model hopping stays painless**: the runtime smooths out provider quirks (OpenAI, Anthropic, LM Studio, Ollama, …), so the same code runs from experiment to production without worrying about `/v1` suffixes or bespoke parameters.
+2. **Agent flows stay explicit**: define the flow in a tiny DSL, wire it through the orchestrator, and keep conversational steps, routers, and evaluators under tight control instead of scattering logic across scripts.
+3. **Tracing becomes fun**: flip a single setting to move from colorized console transcripts to durable SQLite trails (and OTEL exporters next), finally retiring the print-debug routine.
+4. **Policies do the heavy lifting**: relax during development with lenient retries, then tighten fail-fast rules in production purely through configuration—no code edits required.
+5. **CLI, YAML, and Python align**: prototypes, shared specs, and embedded code all read the same, making handoff between teammates effortless.
+6. **Context doubles as a mission log**: every run leaves behind a narrative the whole team can review quickly and audit when needed.
 
 ## Installation
 ```bash
