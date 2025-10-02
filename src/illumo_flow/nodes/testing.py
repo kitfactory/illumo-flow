@@ -58,6 +58,14 @@ class TestExecutorNode(Node):
         env = os.environ.copy()
         env.update(self._env)
 
+        pythonpath = env.get("PYTHONPATH")
+        root_str = str(root_path)
+        if pythonpath:
+            if root_str not in pythonpath.split(os.pathsep):
+                env["PYTHONPATH"] = os.pathsep.join([pythonpath, root_str])
+        else:
+            env["PYTHONPATH"] = root_str
+
         start = time.monotonic()
         completed = subprocess.run(
             command,

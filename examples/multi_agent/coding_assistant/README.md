@@ -22,10 +22,10 @@ examples/multi_agent/coding_assistant/
    illumo run examples/multi_agent/coding_assistant/coding_assistant.yaml \
      --context '{
        "request": {
-         "description": "Fix add() implementation",
-         "target_root": "examples/multi_agent/coding_assistant/sample_app",
-         "tests": "pytest -q"
-       },
+       "description": "Fix add() implementation",
+        "target_root": "examples/multi_agent/coding_assistant",
+        "tests": "pytest -q"
+      },
        "diff": {
          "proposed": "'"$(cat examples/multi_agent/coding_assistant/example_diff.patch | python -c "import sys, json; print(json.dumps(sys.stdin.read()))")"'"
        }
@@ -36,7 +36,7 @@ examples/multi_agent/coding_assistant/
 
 3. **dry-run と書き込み**:
    - デフォルトでは PatchNode は diff を適用してもディスクを書き換えません。結果は `ctx.workspace.files` に格納されます。
-   - 実際にファイルへ反映する場合は、コンテキストに `"write": true` を追加してください。
+   - テストを修正後のコードで実行したい場合は、コンテキストに `"write": true` を追加してから再度実行してください。書き込み後は手動でファイルを元に戻すことを推奨します。
 
 4. **出力の確認**:
    - SummaryAgent が `ctx.summary.report` に人間向けレポートを、`ctx.summary.structured` に構造化データを生成します。
