@@ -45,6 +45,31 @@ illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://
 - OtelTracer は `TempoTracerDB(exporter=...)` を介して OTLP エクスポーターへバッチ送信できます。
 - どのトレーサーも同じペイロードを受け取るため、切り替えてもビジネスロジックには影響しません。観測先だけが変わります。
 
+### 出力例
+ConsoleTracer で coding assistant フローを実行した場合:
+
+```
+[FLOW] start name=inspect
+  [NODE] start name=inspect
+  [NODE] end status=OK
+  [NODE] start name=apply_patch
+  [NODE] end status=OK
+  [NODE] start name=run_tests
+  [NODE] end status=OK
+  [NODE] start name=summarize
+  [NODE] end status=OK
+[FLOW] end status=OK
+```
+
+SQLiteTracer (trace.db) では以下のようなテーブル行を確認できます。
+
+```sql
+sqlite> SELECT kind, name, status FROM spans ORDER BY start_time LIMIT 3;
+flow|inspect|OK
+node|inspect|OK
+node|apply_patch|OK
+```
+
 ## 実験アイデア
 - まず ConsoleTracer で第6章のフローを動かし、次に SQLiteTracer に切り替えてリトライや分岐が DB 上でどう記録されるか比較しましょう。
 - ConsoleTracer をラップして `kind="node"` の span のみを表示するカスタムトレーサーを作り、Agent 関連の動きに集中してみてください。

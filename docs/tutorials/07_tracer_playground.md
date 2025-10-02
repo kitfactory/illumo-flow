@@ -44,6 +44,31 @@ illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://
 - OtelTracer can be backed by `TempoTracerDB(exporter=...)` to reuse the OTLP exporter you already have in production.
 - All tracers receive the same payload, so switching them never changes business logic—only the destination of telemetry.
 
+### Sample output
+ConsoleTracer during the coding assistant flow:
+
+```
+[FLOW] start name=inspect
+  [NODE] start name=inspect
+  [NODE] end status=OK
+  [NODE] start name=apply_patch
+  [NODE] end status=OK
+  [NODE] start name=run_tests
+  [NODE] end status=OK
+  [NODE] start name=summarize
+  [NODE] end status=OK
+[FLOW] end status=OK
+```
+
+SQLiteTracer stores the same run in `trace.db`:
+
+```sql
+sqlite> SELECT kind, name, status FROM spans ORDER BY start_time LIMIT 3;
+flow|inspect|OK
+node|inspect|OK
+node|apply_patch|OK
+```
+
 ## Experiments
 - Run the Chapter 6 flow with ConsoleTracer first, then swap to SQLiteTracer and compare how retries and router decisions appear in the database.
 - Create a custom tracer that wraps ConsoleTracer but filters spans by `kind="node"` to spotlight only Agent interactions.
