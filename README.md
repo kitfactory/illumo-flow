@@ -2,6 +2,14 @@
 
 Workflow orchestration primitives featuring declarative DSL wiring, routing control, and fail-fast execution.
 
+## Why developers pick illumo-flow
+- Glue code disappears: prompt wiring, context persistence, branching, and scoring are packaged as reusable building blocks.
+- Observability is instant—toggle a config to move from colorful console traces to persistent stores or OTEL without editing business logic.
+- Failure behaviour stays declarative, so you can jump between experimental retries and production-grade safeguards in configuration alone.
+- CLI, YAML, and Python share one mental model, enabling prototypes and deployed flows to live side by side.
+- Provider quirks are normalized automatically, letting you swap between OpenAI, LMStudio, and others with the same settings.
+- Execution context doubles as a mission log, keeping development and operations aligned on what happened and why.
+
 ## Installation
 ```bash
 pip install illumo-flow

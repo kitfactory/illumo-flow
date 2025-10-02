@@ -1,49 +1,49 @@
 # 7. Tracer Playground – See the Story
 
-## Goal
-Visualize what your flow is doing by switching between console, SQLite, and OTEL tracers.
+## You want to…
+Observe every flow/node span and log without sprinkling print statements.
 
-## Why it’s satisfying
-- You watch spans start/end for every node (instant debugging).
-- SQLite gives you a permanent journal; OTEL lets you integrate with observability stacks.
+### Use tracers because…
+- `ConsoleTracer`, `SQLiteTracer`, and `OtelTracer` all implement `TracerProtocol`, so switching them is frictionless.
+- `SpanTracker` already emits flow/node span events—your job is just to choose the destination.
+- ConsoleTracer colorizes Agent `instruction` / `input` / `response`, so you can read conversations at a glance.
 
-## Steps
-1. **ConsoleTracer (default)**
-   ```python
-   from illumo_flow import FlowRuntime, ConsoleTracer
-   FlowRuntime.configure(tracer=ConsoleTracer())
-   ```
-   Run the multi-agent flow and note `[FLOW]` / `[NODE]` lines.
+## How to do it
+1. Pick a tracer in `FlowRuntime.configure`.
+2. Run your flow (e.g., the mini app from Chapter 6).
+3. Inspect console output / SQLite DB / OTEL export.
 
-2. **SQLiteTracer**
-   ```python
-   from illumo_flow import SQLiteTracer
-   FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
-   ```
-   After running the flow, inspect the DB:
-   ```python
-   import sqlite3
-   with sqlite3.connect("trace.db") as conn:
-       for row in conn.execute("SELECT name, status, start_time FROM spans"):
-           print(row)
-   ```
+```python
+from illumo_flow import FlowRuntime, ConsoleTracer, SQLiteTracer, OtelTracer
 
-3. **OtelTracer**
-   ```python
-   from illumo_flow import OtelTracer
-   FlowRuntime.configure(tracer=OtelTracer(service_name="illumo-flow", exporter=my_exporter))
-   ```
-   Implement `my_exporter.export(spans)` to forward data to Jaeger/Tempo/etc.
+# Console: instruction/input/response are colorized for quick scanning
+FlowRuntime.configure(tracer=ConsoleTracer())
 
-4. **CLI switching**
-   ```bash
-   illumo run flow_launch.yaml --tracer sqlite --tracer-arg db_path=./trace.db
-   illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
-   ```
+# SQLite
+FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
 
-## Checklist
-- [ ] Console logs are readable (`[FLOW]`, `[NODE]`, `[routing.enqueue]` etc.).
-- [ ] SQLite DB contains span rows for flow/node.
-- [ ] OTEL exporter receives span payloads (inspect your backend).
+# OTEL
+FlowRuntime.configure(tracer=OtelTracer(service_name="illumo-flow", exporter=my_exporter))
+```
 
-Tracer mastery makes production debugging a breeze. Next, we’ll tame fail-fast and retries with Policy in Chapter 8.
+CLI switches too:
+```bash
+illumo run flow_launch.yaml --tracer sqlite --tracer-arg db_path=./trace.db
+illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
+```
+
+## Tracer insights
+- ConsoleTracer prints `[FLOW]` spans in bright white and `[NODE]` spans in cyan; Agent instruction/input/response segments use yellow/blue/green respectively.
+- SQLiteTracer stores spans in `spans`, `events`, and `links` tables—join them to correlate retries or router jumps with specific node runs.
+- OtelTracer batches spans before calling your exporter; implement `my_exporter.export(spans)` to forward them to Jaeger, Tempo, or any OTLP-compatible collector.
+- All tracers receive the same payload, so switching them never changes business logic—only the destination of telemetry.
+
+## Experiments
+- Run the Chapter 6 flow with ConsoleTracer first, then swap to SQLiteTracer and compare how retries and router decisions appear in the database.
+- Create a custom tracer that wraps ConsoleTracer but filters spans by `kind="node"` to spotlight only Agent interactions.
+- Feed OTEL data into a dashboard and add alerts when EvaluationAgent spans exceed a latency threshold—useful for production monitoring.
+
+## Learned in this chapter
+- Tracers are pluggable via `FlowRuntime.configure(tracer=...)`.
+- ConsoleTracer highlights Agent instruction/input/response while SQLite stores history and OTEL forwards spans.
+- With observability handled, Chapter 8 focuses on error handling via Policy.

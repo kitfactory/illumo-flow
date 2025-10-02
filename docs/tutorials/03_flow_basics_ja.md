@@ -1,18 +1,17 @@
 # 3. Flow 基礎 – ノードをつなげて処理を流す
 
-## 目標
-Agent と FunctionNode を DSL で連結し、CLI でも Python でも実行できるフローを作ります。
+## やりたいこと
+Agent の出力を Python 関数へ渡し、CLI と Python の両方で実行できるフローを構築したい。
 
-## 面白いところ
-- LLM と決定的処理を自由に組み合わせられます。
-- `greet >> upper` のような記法で流れが視覚的に把握できます。
+### `Flow` を使う理由
+- `illumo_flow.core.Flow` は DSL のエッジを実行順序と入力評価にマッピングします。
+- `inputs` / `outputs` の式でデータの流れを明示的に制御できます。
 
-## キー概念
-- `Flow.from_dsl` と `Flow.from_config`（YAML / Python dict）
-- `inputs`・`outputs` における `$ctx.*`・`$payload`・`$joins` の使い方
-- CLI (`illumo run flow.yaml`) と Python API の両立
+## 手順
+1. Agent と FunctionNode を定義。
+2. `Flow.from_dsl` または YAML でフローを作成。
+3. 実行して `ctx` に結果が格納される様子を確認。
 
-## ハンズオン
 ```python
 from illumo_flow import Flow, FunctionNode, Agent, NodeConfig
 
@@ -56,14 +55,12 @@ flow:
   nodes:
     greet:
       type: illumo_flow.nodes.Agent
-      name: Greeter
       context:
         inputs:
           prompt: "{{ $ctx.user.name }} さんへの挨拶文を作成"
         outputs: $ctx.messages.greeting
     upper:
       type: illumo_flow.core.FunctionNode
-      name: ToUpper
       context:
         inputs:
           callable: path.to.module.post_process
@@ -76,9 +73,18 @@ flow:
 illumo run flow.yaml --context '{"user": {"name": "紗希"}}'
 ```
 
-## チェックリスト
-- [ ] `inputs` が適切に関数へ渡されることを理解した。
-- [ ] Python / CLI 両方から同じフローを実行した。
-- [ ] 結果が設定したコンテキストに保存される。
+## Flow の仕組み
+- DSL パーサは `greet >> upper` をグラフ構造に変換し、`flow.run` を繰り返すときにはキャッシュを再利用します。
+- 入力式は JSONPath 風に評価され、`$ctx.messages.greeting` のような入れ子キーでも安全に参照できます。
+- 実行完了時に Tracer がルート span を閉じ、対応するトレーサー（SQLite / OTEL など）が `ctx` のスナップショットをメタデータとして記録します。
+- YAML で定義したフローも CLI 経由で同じローダーが処理するため、Python で試したあとに YAML 化しても振る舞いは変わりません。
 
-次は RouterAgent を使って会話の分岐を楽しみます。
+## 応用ヒント
+- もう一つ FunctionNode を追加して、大文字変換後のメッセージを外部 API に送信し、そのレスポンスを `outputs` で記録してみましょう。第7章のトレーサーで可視化できます。
+- `ToUpper` の後ろに Chapter 4 の `RouterAgent` をつなぎ（`upper >> route`）、条件に応じて別ノードへ分岐する構成を試してみてください。
+- 大規模フローは `examples/flows/*.yaml` に保存して `illumo run` で読み込むと、チームメンバーと同じシナリオを簡単に共有できます。
+
+## この章で学んだこと
+- `Flow` はノード間のデータフローを明示的に制御する土台です。
+- `inputs` / `outputs` を通じて、どの値がどのノードへ渡るかを管理できます。
+- CLI と Python の両方から同じフローを実行・デバッグできる柔軟性があります。

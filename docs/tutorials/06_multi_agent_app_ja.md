@@ -1,19 +1,75 @@
 # 6. マルチエージェントミニアプリを作る
 
-## 目標
-Agent → RouterAgent → EvaluationAgent を組み合わせ、「リリース判定アプリ」を構築します。
+## やりたいこと
+複数のエージェントが協力してリリース可否を判断する “ローンチアドバイザー” を構築したい。
 
-## 楽しいポイント
-- 複数の LLM エージェントが役割分担して協力する様子が見えます。
-- コンテキストにストーリーが蓄積され、後から分析しやすくなります。
+### この構成を使う理由
+- `Agent` が文章を作り、`EvaluationAgent` が採点し、`RouterAgent` が Ship/Refine を決めます。
+- `ctx.notes`、`ctx.metrics`、`ctx.route` といった共有コンテキストによりステップ間で情報が受け渡されます。
 
-## ワークフロー概要
-1. `AuthorAgent` がリリースノート案を生成。
+## フロー概要
+1. `AuthorAgent` がリリースノート案を作成。
 2. `EvaluationAgent` がスコア付け。
-3. `RouterAgent` が Ship/Refine を決定。
-4. 必要なら再度 `AuthorAgent` に戻るループ。
+3. `RouterAgent` が「Ship or Refine」を判断。
+4. スコアが低ければ再度 `AuthorAgent` へループ。
 
-## DSL 例
+## Python 実装例
+```python
+from illumo_flow import Flow, Agent, EvaluationAgent, RouterAgent, NodeConfig
+
+author = Agent(
+    config=NodeConfig(
+        name="AuthorAgent",
+        setting={
+            "prompt": {"type": "string", "value": "{{ $ctx.feature.name }} のリリースノートを作成してください"},
+            "output_path": {"type": "string", "value": "$ctx.notes.draft"},
+        },
+    )
+)
+
+review = EvaluationAgent(
+    config=NodeConfig(
+        name="ReviewAgent",
+        setting={
+            "prompt": {
+                "type": "string",
+                "value": "{'score':0-100,'reasons':...} の JSON を返してください",
+            },
+            "target": {"type": "string", "value": "$ctx.notes.draft"},
+            "output_path": {"type": "string", "value": "$ctx.metrics.score"},
+            "metadata_path": {"type": "string", "value": "$ctx.metrics.reason"},
+            "structured_path": {"type": "string", "value": "$ctx.metrics.details"},
+        },
+    )
+)
+
+decide = RouterAgent(
+    config=NodeConfig(
+        name="RouterAgent",
+        setting={
+            "prompt": {
+                "type": "string",
+                "value": "スコア {{ $ctx.metrics.score }} / 理由 {{ $ctx.metrics.reason }}\nShip か Refine を選択してください。",
+            },
+            "choices": {"type": "sequence", "value": ["Ship", "Refine"]},
+            "output_path": {"type": "string", "value": "$ctx.route.decision"},
+            "metadata_path": {"type": "string", "value": "$ctx.route.reason"},
+        },
+    )
+)
+
+flow = Flow.from_dsl(
+    nodes={"author": author, "review": review, "decide": decide},
+    entry="author",
+    edges=["author >> review", "review >> decide"],
+)
+
+context = {"feature": {"name": "Smart Summary"}}
+flow.run(context)
+print(context["route"]["decision"], context["route"]["reason"])
+```
+
+## YAML 例
 ```yaml
 flow:
   entry: author
@@ -38,9 +94,8 @@ flow:
       context:
         inputs:
           prompt: |
-            Draft score: {{ $ctx.metrics.score }}
-            Reasons: {{ $ctx.metrics.reason }}
-            Choose Ship or Refine.
+            スコア {{ $ctx.metrics.score }} / 理由 {{ $ctx.metrics.reason }}
+            Ship か Refine を選択してください。
         choices: [Ship, Refine]
         output_path: $ctx.route.decision
         metadata_path: $ctx.route.reason
@@ -51,14 +106,25 @@ flow:
 ```bash
 illumo run flow_launch.yaml --context '{"feature": {"name": "Smart Summary"}}'
 ```
+- サービスに組み込む際は Python 実装を、チームでリプレイする際は YAML フローを共有しましょう。
 
-## ループ拡張（任意）
-- `decide >> author` のエッジを追加し、`RouterAgent` が Refine を返したときのみ再トライ。
-- `ctx.history.author` を参照し、過剰ループを防ぐロジックを仕込む。
+## 任意のループ
+`decide >> author` を追加し、Refine のときだけドラフト作成に戻す条件を用意します。
 
-## チェックリスト
-- [ ] ドラフト／スコア／意思決定が一連のフローで得られる。
-- [ ] 理由 (`ctx.route.reason`) が記録され、後からレビューできる。
-- [ ] ループが必要なときだけ発動する。
+## ナラティブの工夫
+- `ctx.notes.versions` のようにリストを用意し、ドラフトの各バージョンを保存しておくと EvaluationAgent が過去との比較をしやすくなります。
+- `ctx.metrics.reason` を著者エージェントのプロンプトに差し込み、レビュアーのフィードバックを即座に反映させましょう。
+- RouterAgent に `metadata_path` を指定して「Ship を選んだ理由」を記録すると、後で Policy のフォールバック条件に活用できます。
+- ConsoleTracer では各エージェントの instruction / input / response が色分けされ、漫画のコマのようにフローの物語を追えます。
 
-次章ではトレーサーを切り替え、フローの裏側を覗き見します。
+## ストレッチ課題
+- コンプライアンス特化の EvaluationAgent を追加し、スコアを平均してからルーティングする構成を試してください。
+- 著者ノードに Policy のリトライ設定（例: 最大2回の指数バックオフ）を加え、プロバイダの揺らぎに備えましょう。
+- 実行ごとに `json.dump(ctx, open("launch_snapshot.json"))` のようにコンテキストを保存して、意思決定のタイムラプスを作ってみましょう。
+
+## この章で学んだこと
+- 複数のエージェントを連携させることで「チーム」のようなフローを構築できる。
+- `ctx.notes`、`ctx.metrics`、`ctx.route` を通じてドラフト→採点→判断のストーリーが繋がる。
+- RouterAgent を活用すれば採点結果に応じたループや分岐を簡単に設計可能。
+
+第7章ではトレーサーを切り替えてフローの裏側を観察します。

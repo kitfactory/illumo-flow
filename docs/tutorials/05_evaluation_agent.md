@@ -1,18 +1,17 @@
 # 5. EvaluationAgent – Scoring the Output
 
-## Goal
-Score LLM outputs and capture structured feedback so you can route or report on quality metrics.
+## You want to…
+Score an Agent’s output and keep both the numeric grade and the reasoning for later decisions.
 
-## Why it keeps things lively
-- You can gamify flows (“Did we reach 80+ points?”) and adapt behavior automatically.
-- JSON responses make downstream analytics simple.
+### Use `EvaluationAgent` because…
+- It evaluates a `target` expression, parses JSON `{score, reasons}`, and stores results in context paths automatically.
+- Doing this manually with FunctionNode would mean custom parsing & bookkeeping every time.
 
-## Core concepts
-- `target` expression selects what to evaluate.
-- Parsing structured results (JSON) vs plain-text scores.
-- Storing score, reasons, and structured payload separately.
+## How to do it
+1. Configure runtime (from Chapter 1).
+2. Declare `EvaluationAgent` with `prompt`, `target`, and output paths.
+3. Bind, execute, and inspect `ctx.metrics.*`.
 
-## Hands-on
 ```python
 from illumo_flow import EvaluationAgent, NodeConfig
 
@@ -40,9 +39,39 @@ print("score=", score)
 print(ctx["metrics"]["score"], ctx["metrics"]["reason"], ctx["metrics"]["details"])
 ```
 
-## Checklist
-- [ ] Score is stored both in return value and `ctx.metrics.score`.
-- [ ] Reasons and structured JSON live under their paths.
-- [ ] `ctx.metrics.review` log (from Chapter 2) shows timestamped entries.
+## YAML counterpart
+```yaml
+flow:
+  entry: review
+  nodes:
+    review:
+      type: illumo_flow.nodes.EvaluationAgent
+      context:
+        inputs:
+          prompt: "Provide JSON with 'score' (0-100) and 'reasons' for {{ $ctx.messages.greeting }}"
+          target: $ctx.messages.greeting
+        outputs: $ctx.metrics.score
+        metadata_path: $ctx.metrics.reason
+        structured_path: $ctx.metrics.details
+```
+```bash
+illumo run evaluate_greeting.yaml --context '{"messages": {"greeting": "Hello world"}}'
+```
+- Use Python when integrating EvaluationAgent into automated pipelines; use the YAML flow for quick CLI scoring sessions or documentation.
 
-Time to combine Agents into a mini multi-agent app in Chapter 6.
+## Why evaluators rock
+- `target` expressions can reference any context slot—grade drafts, tool outputs, or full transcripts.
+- JSON parsing is resilient: if the model returns plain text, EvaluationAgent still extracts numeric scores via heuristics and records the raw answer as metadata.
+- ConsoleTracer tags evaluation spans in magenta, so scoring steps stand out from drafting nodes.
+- Pair EvaluationAgent with Policy retries to re-grade content after automated refinements.
+
+## Try this
+- Ask the model for extra fields such as `{"score":0-100,"reasons":[],"action_items":[]}` and store `action_items` via `structured_path` for RouterAgent to consume later.
+- Change `output_path` to `$ctx.metrics.history[-1].score` to maintain a rolling list of past evaluations.
+- Run the evaluator twice with different prompts (user satisfaction vs. compliance) and compare how the context influences `ctx.metrics.details`.
+- Route low scores to a follow-up Agent that rewrites the draft, then send the new output back into this evaluator to close the loop.
+
+## Learned in this chapter
+- `EvaluationAgent` is the go-to class for generating scores and rationales from LLMs.
+- JSON is parsed automatically; fallbacks still capture useful plain-text scores.
+- With scores in hand, we can build a multi-agent launch advisor in Chapter 6.

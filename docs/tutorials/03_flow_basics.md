@@ -1,18 +1,17 @@
 # 3. Flow Fundamentals – Wiring Agents & Functions
 
-## Goal
-Assemble nodes into a directed flow so your Agent collaborates with deterministic Python logic.
+## You want to…
+Chain nodes so an Agent’s output feeds deterministic Python logic, and run the flow via CLI or code.
 
-## Why it’s powerful
-- Sequence and branch LLM creativity with reliable code.
-- DSL strings like `start >> review` make debugging and iteration enjoyable.
+### Use `Flow` because…
+- `Flow` (class `illumo_flow.core.Flow`) maps DSL edges to execution order and context evaluation.
+- `inputs` / `outputs` expressions keep payloads and context tidy.
 
-## Core concepts
-- `Flow.from_dsl` vs `Flow.from_config` (YAML/Python dict).
-- Mapping values via `$ctx.*`, `$payload`, `$joins` in `inputs`/`outputs`.
-- Running flows from CLI (`illumo run flow.yaml`) and Python.
+## How to do it
+1. Define nodes (`Agent`, `FunctionNode`).
+2. Build a flow with `Flow.from_dsl` or YAML.
+3. Run it and inspect context outputs.
 
-## Hands-on: Mini Flow
 ```python
 from illumo_flow import Flow, FunctionNode, Agent, NodeConfig
 
@@ -56,14 +55,12 @@ flow:
   nodes:
     greet:
       type: illumo_flow.nodes.Agent
-      name: Greeter
       context:
         inputs:
           prompt: "Draft a welcome message for {{ $ctx.user.name }}"
         outputs: $ctx.messages.greeting
     upper:
       type: illumo_flow.core.FunctionNode
-      name: ToUpper
       context:
         inputs:
           callable: path.to.module.post_process
@@ -76,9 +73,18 @@ flow:
 illumo run flow.yaml --context '{"user": {"name": "Kai"}}'
 ```
 
-## Checklist
-- [ ] Understand how `inputs` map expressions to callable parameters.
-- [ ] Run the same flow via Python and CLI.
-- [ ] Confirm outputs land in expected context paths.
+## Flow anatomy
+- The DSL parser resolves `greet >> upper` into an execution graph and caches it so repeated `flow.run` calls skip rebuilding edges.
+- Each node receives inputs after expression evaluation; the evaluation engine walks the context using JSONPath-like lookups, so nested keys (`$ctx.messages.greeting`) are first-class.
+- When the flow ends, the tracer closes the root span and attaches the final `ctx` snapshot as metadata if the tracer supports structured payloads (SQLite and OTEL do).
+- YAML flows go through the same loader as the CLI, so experimenting in code and then promoting to YAML does not change semantics.
 
-Next stop: use RouterAgent to branch conversations intelligently.
+## Power moves
+- Add a second FunctionNode that sends the uppercase message to an email API; use `outputs` to store the API response and trace it in Chapter 7.
+- Try chaining `RouterAgent` (Chapter 4) after `ToUpper` by adding `upper >> route`. You can then branch into different FunctionNodes based on the LLM decision.
+- For large flows, store node definitions in `examples/flows/*.yaml` and load them via `illumo run`; version-controlling those specs lets teammates replay your experiments.
+
+## Learned in this chapter
+- `Flow` orchestrates node execution and context wiring.
+- `inputs` / `outputs` expressions control how data moves between nodes.
+- The CLI example (`illumo run flow.yaml --context {...}`) mirrors the Python API so you can debug and automate the same flow.

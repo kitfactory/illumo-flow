@@ -1,24 +1,49 @@
 
 # Illumo Flow Tutorial
 
-Use this index to navigate the chaptered documentation. Each chapter ships with an English and Japanese version so teams can choose the preferred language while following the same structure.
+Use this index to explore the nine-part tutorial. Every chapter highlights a user goal, the illumo-flow class to reach it, hands-on code, and key takeaways. English and Japanese versions mirror each other chapter by chapter.
 
-## Chapter Overview
-- [Chapter 1 · Conceptual Foundations](chapter1_foundations.md)
-- [Chapter 2 · Building a Linear Flow](chapter2_linear_flow.md)
-- [Chapter 3 · Branching, Routing, and Loops](chapter3_routing_loops.md)
-- [Chapter 4 · Fan-out, Joins, and Structured Inputs](chapter4_fanout_joins.md)
-- [Chapter 5 · Configuration, Testing, and Operations](chapter5_operations.md)
+Each chapter ships with paired Python and YAML examples: embed the Python snippets in applications, or run the YAML flows with `illumo run` when you want reproducible CLI scenarios.
 
-## How to Use This Tutorial
-1. Start with Chapter 1 to understand the guiding principles (payload-first design, fail-fast orchestration, declarative wiring).
-2. Implement the minimal flow from Chapter 2 in your environment.
-3. Iterate with Chapters 3 and 4 to add branching, loops, and joins.
-4. Apply Chapter 5 when operationalising your flows (configuration sources, test discipline, runtime guard rails).
+### Developer advantages
+- Built-in abstractions handle prompt wiring, context storage, branching, and scoring so you can focus on logic instead of glue code.
+- Observability is turnkey: flip a configuration switch to jump between colorful console traces, SQLite archives, or OTEL exports.
+- Failure handling stays declarative—switch between experimental retries and production fail-fast policies without code edits.
+- CLI, YAML, and Python share the same mental model, letting prototypes graduate to production without rewrites.
+- Provider differences disappear; endpoint details such as `/v1` suffixes are normalized automatically.
+- Context doubles as a mission log, making collaboration between development and operations effortless.
 
-Japanese translations of the same content are available here:
-- [第1章](chapter1_foundations_ja.md)
-- [第2章](chapter2_linear_flow_ja.md)
-- [第3章](chapter3_routing_loops_ja.md)
-- [第4章](chapter4_fanout_joins_ja.md)
-- [第5章](chapter5_operations_ja.md)
+## Chapters (English)
+- [01 · Introduction & Setup](01_introduction.md) — install `illumo-flow`, configure credentials, and meet FlowRuntime.
+- [02 · Agent Basics](02_agent_basics.md) — create conversational LLM nodes with history and metadata paths.
+- [03 · Flow Fundamentals](03_flow_basics.md) — wire Agents and FunctionNodes via DSL/YAML/CLI.
+- [04 · RouterAgent](04_router_agent.md) — branch flows with explicit choices and audit trails.
+- [05 · EvaluationAgent](05_evaluation_agent.md) — score outputs with structured JSON results.
+- [06 · Multi-Agent Mini App](06_multi_agent_app.md) — orchestrate authoring, review, and decision loops.
+- [07 · Tracer Playground](07_tracer_playground.md) — swap Console/SQLite/OTEL tracers and read colorized spans.
+- [08 · Policy Mastery](08_policy_mastery.md) — declare retry/timeout/on_error strategies.
+- [09 · Next Steps](09_next_steps.md) — extend flows, integrate telemetry, and plan new guardrails.
+
+## Chapters (日本語)
+- [01 · 導入とセットアップ](01_introduction_ja.md)
+- [02 · Agent 基礎](02_agent_basics_ja.md)
+- [03 · Flow 基礎](03_flow_basics_ja.md)
+- [04 · RouterAgent](04_router_agent_ja.md)
+- [05 · EvaluationAgent](05_evaluation_agent_ja.md)
+- [06 · マルチエージェントアプリ](06_multi_agent_app_ja.md)
+- [07 · トレーサー道場](07_tracer_playground_ja.md)
+- [08 · Policy で制御](08_policy_mastery_ja.md)
+- [09 · 次のステップ](09_next_steps_ja.md)
+
+## How to get the most out of it
+1. Follow the chapters in order; each builds on the previous runtime configuration.
+2. Run the provided code snippets (`pip install illumo-flow` is all you need) and adapt them to your project.
+3. Use Chapter 7 and 8 to instrument and harden any flows you deploy.
+4. Keep an eye on context keys (`ctx.messages`, `ctx.metrics`, `ctx.route`, `ctx.errors`) as they evolve—the tutorial teaches you how to read them like a mission log.
+5. Revisit chapters with different providers (OpenAI vs. LMStudio) to experience how the `/v1` auto-append and Policy retries behave in varied environments.
+
+## What you will master
+- Building conversational Agents, Routers, and Evaluators that share context elegantly.
+- Observability via Console/SQLite/OTEL tracers, including the color-coded Agent spans.
+- Resilience patterns using declarative Policy settings (retry, timeout, goto).
+- Multi-agent storytelling that culminates in production-ready flows you can automate.

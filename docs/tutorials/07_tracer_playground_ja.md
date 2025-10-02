@@ -1,49 +1,52 @@
-# 7. トレーサーでフローを観察する
+# 7. トレーサー道場 – フローの裏側を見る
 
-## 目標
-Console / SQLite / OTEL の各トレーサーを切り替え、フローの内部動作を可視化します。
+## やりたいこと
+Flow と Node の span を観察し、`instruction` / `input` / `response` の色分けログや履歴を残したい。
 
-## 面白さ
-- `[FLOW]` / `[NODE]` ログで進行状況が一目でわかります。
-- SQLite に残した span を分析したり、OTEL で外部監視に接続できます。
+### トレーサーを使う理由
+- `ConsoleTracer` / `SQLiteTracer` / `OtelTracer` は同じ `TracerProtocol` 実装なので差し替えが瞬時にできます。
+- ConsoleTracer はエージェントの `instruction` / `input` / `response` を色付きで表示し、進行状況を即座に把握できます。
+- SQLite / OTEL へ送ることで、後から分析・監視基盤と連携できます。
 
-## ステップ
-1. **ConsoleTracer（デフォルト）**
-   ```python
-   from illumo_flow import FlowRuntime, ConsoleTracer
-   FlowRuntime.configure(tracer=ConsoleTracer())
-   ```
-   フローを実行するとターミナルに色付きログが表示されます。
+## 手順
+1. `FlowRuntime.configure(tracer=...)` で使いたいトレーサーを選択。
+2. 第6章のミニアプリなど任意のフローを実行。
+3. コンソールログ・SQLite DB・OTEL 転送結果を確認。
 
-2. **SQLiteTracer**
-   ```python
-   from illumo_flow import SQLiteTracer
-   FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
-   ```
-   実行後、SQLite を確認:
-   ```python
-   import sqlite3
-   with sqlite3.connect("trace.db") as conn:
-       for row in conn.execute("SELECT span_id, kind, status FROM spans"):
-           print(row)
-   ```
+```python
+from illumo_flow import FlowRuntime, ConsoleTracer, SQLiteTracer, OtelTracer
 
-3. **OtelTracer**
-   ```python
-   from illumo_flow import OtelTracer
-   FlowRuntime.configure(tracer=OtelTracer(service_name="illumo-flow", exporter=my_exporter))
-   ```
-   `my_exporter.export(spans)` を実装して Jaeger/TEMPO に送信。
+# ConsoleTracer: 色付きで instruction/input/response を表示
+FlowRuntime.configure(tracer=ConsoleTracer())
 
-4. **CLI で切り替え**
-   ```bash
-   illumo run flow_launch.yaml --tracer sqlite --tracer-arg db_path=./trace.db
-   illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
-   ```
+# SQLiteTracer: span をファイルに保存
+FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
 
-## チェックリスト
-- [ ] ConsoleTracer で `[FLOW]` `[NODE]` ログが表示される。
-- [ ] SQLiteTracer の DB に span 情報が保存される。
-- [ ] OtelTracer がエクスポーターへ span を送信する（ダッシュボードで確認）。
+# OtelTracer: 監視基盤へエクスポート
+FlowRuntime.configure(tracer=OtelTracer(service_name="illumo-flow", exporter=my_exporter))
+```
 
-観察スキルを磨いたら、第8章で Policy を使って失敗時の挙動を制御しましょう。
+CLI から切り替える場合:
+
+```bash
+illumo run flow_launch.yaml --tracer sqlite --tracer-arg db_path=./trace.db
+illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
+```
+
+## トレーサーの見どころ
+- ConsoleTracer は `[FLOW]` span を白、`[NODE]` span をシアンで表示し、Agent の instruction/input/response は黄・青・緑で色分けします。
+- SQLiteTracer では `spans` / `events` / `links` テーブルに記録されるため、リトライや Router の分岐と特定ノードを SQL で突き合わせられます。
+- OtelTracer は span をバッチ送信するので、`my_exporter.export(spans)` を実装して Jaeger や Tempo など OTLP 対応のコレクタに流し込みましょう。
+- どのトレーサーも同じペイロードを受け取るため、切り替えてもビジネスロジックには影響しません。観測先だけが変わります。
+
+## 実験アイデア
+- まず ConsoleTracer で第6章のフローを動かし、次に SQLiteTracer に切り替えてリトライや分岐が DB 上でどう記録されるか比較しましょう。
+- ConsoleTracer をラップして `kind="node"` の span のみを表示するカスタムトレーサーを作り、Agent 関連の動きに集中してみてください。
+- OTEL 経由でダッシュボードに送り、EvaluationAgent の遅延が閾値を超えたらアラートを鳴らす設定を試すと本番運用のイメージを掴めます。
+
+## この章で学んだこと
+- トレーサーは `FlowRuntime.configure` の引数を変えるだけで差し替えられる。
+- ConsoleTracer で `instruction` / `input` / `response` が色付き表示され、状況把握が容易になる。
+- SQLiteTracer や OtelTracer を使うと履歴を保存したり監視システムへ送信できる。
+
+第8章では Policy を使って失敗時の挙動をコントロールします。
