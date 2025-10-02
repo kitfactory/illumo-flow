@@ -8,7 +8,7 @@ Workflow orchestration primitives featuring declarative DSL wiring, routing cont
 3. **Tracing becomes fun**: flip a single setting to move from colorized console transcripts to durable SQLite trails (and OTEL exporters next), finally retiring the print-debug routine.
 4. **Policies do the heavy lifting**: relax during development with lenient retries, then tighten fail-fast rules in production purely through configuration—no code edits required.
 5. **CLI, YAML, and Python align**: prototypes, shared specs, and embedded code all read the same, making handoff between teammates effortless.
-6. **Context doubles as a mission log**: every run leaves behind a narrative the whole team can review quickly and audit when needed.
+6. **Context doubles as a mission log**: every run leaves a ready-to-inspect history, so you can trace what happened and queue follow-up actions without extra tooling.
 
 ## Installation
 ```bash
