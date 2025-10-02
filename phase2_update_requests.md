@@ -14,7 +14,7 @@
 - [x] TracerDB インターフェースを設計し、SQLite 用・Tempo 用の TracerDB 派生クラスを実装（既存トレーサーとの連携を確認）する。→ 詳細要件は「設計付録 B」を参照。
 
 ## 2. 優先対応 (Should)
-- [ ] チャットボット事例を `examples/multi_agent/chat_bot/` に追加し、既存ノードで不足する機能を整理する。→ 詳細要件は「設計付録 C」を参照。
+- [x] チャットボット事例を `examples/multi_agent/chat_bot/` に追加し、既存ノードで不足する機能を整理する。→ 詳細要件は「設計付録 C」を参照。
 - [ ] Tutorial チャプターに対応するサンプル YAML / Python ファイルを `examples/` 配下へ整理し、実行手順を README にリンクする。
 - [ ] Tracer ごとのベンチマーク（起動時間、ログ書き込み量）を作成し、docs/ 以下に記録する。
 - [ ] Policy リトライ設定のベストプラクティス（開発／ステージング／本番）をまとめ、`docs/update_requirement.md` に追記する。
