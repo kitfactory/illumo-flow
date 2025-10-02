@@ -1,4 +1,3 @@
-This repo enforces Edit-Only changes. No new files. Follow this document strictly.
 
 応答は日本語で回答しましょう。
 
