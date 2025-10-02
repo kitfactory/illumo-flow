@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import difflib
+import shlex
+import sys
 from pathlib import Path
 
 import pytest
 
 from illumo_flow.core import FlowError, NodeConfig
+from illumo_flow.nodes.testing import TestExecutorNode
 from illumo_flow.nodes.workspace import PatchNode, WorkspaceInspectorNode
 
 
@@ -30,6 +33,13 @@ def build_patch_node(**settings: object) -> PatchNode:
 
 def run_patch(node: PatchNode, context: dict, diff: str) -> dict:
     return node._execute(diff, context)  # type: ignore[arg-type]
+
+
+def build_test_executor_node(**settings: object) -> TestExecutorNode:
+    config = NodeConfig(name="test_executor", setting=settings)
+    node = TestExecutorNode(config=config)
+    node.bind("test_executor")
+    return node
 
 
 def test_workspace_inspector_collects_selected_files(tmp_path: Path) -> None:
@@ -162,3 +172,38 @@ def test_patch_node_write_option(tmp_path: Path) -> None:
     run_patch(node, context, diff)
 
     assert target.read_text() == updated
+
+
+def test_test_executor_runs_pytest(tmp_path: Path) -> None:
+    root = tmp_path / "sample"
+    root.mkdir()
+    tests_dir = root / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_sample.py").write_text("def test_add():\n    assert 1 + 1 == 2\n")
+
+    context = {
+        "request": {"target_root": str(root)},
+        "tests": {"command": "pytest -q"},
+    }
+
+    node = build_test_executor_node(timeout=30)
+    result = node._execute(None, context)  # type: ignore[arg-type]
+
+    assert result["returncode"] == 0
+    assert "tests" in context and context["tests"]["results"]["returncode"] == 0
+
+
+def test_test_executor_records_failures(tmp_path: Path) -> None:
+    root = tmp_path / "sample"
+    root.mkdir()
+
+    context = {
+        "request": {"target_root": str(root)},
+        "tests": {"command": f"{shlex.quote(sys.executable)} -c 'import sys; sys.exit(1)'"},
+    }
+
+    node = build_test_executor_node(timeout=5)
+    result = node._execute(None, context)  # type: ignore[arg-type]
+
+    assert result["returncode"] == 1
+    assert context["tests"]["results"]["returncode"] == 1
