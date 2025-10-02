@@ -178,6 +178,19 @@
 - 将来的に CLI を導入する場合は `illumo trace --list` などのサブコマンドで Reader を呼び出す形を想定。
 - OTEL/Tempo など外部監視システムでは既存 exporter を利用し、TracerDB の検索機能は SQLite ベースの運用・分析用途に限定する。
 
+
+### CLI 実装方針
+- `illumo` コマンドを `python -m illumo_flow.cli` で提供。インストール時に `illumo` エントリーポイントを生成する。
+- サブコマンド案:
+  - `illumo run FLOW_PATH --context '@context.json' --tracer sqlite --tracer-arg db_path=trace.db`
+  - `illumo trace list` / `illumo trace show TRACE_ID` で `SQLiteTraceReader` を利用。
+  - `illumo policy lint FLOW_PATH` で YAML 内の Policy 設定を検査。
+- 実装 TODO:
+  1. `illumo_flow/cli/__init__.py` に Typer または argparse ベースの CLI を追加。
+  2. `run` サブコマンドは現行 `Flow.from_config` 実行ロジックをラップし、`--context` に JSON 文字列またはファイル (`@path`) を受け付ける。
+  3. `trace` サブコマンドは `SQLiteTraceReader` を呼び出して絞り込み (`--trace-id`, `--name`, `--kind`, `--limit`) をサポート。
+  4. 既存チュートリアルの CLI 例は `illumo run` に統一した形で更新する。
+- 実装前提: CLI から tracer/policy/環境変数を上書きできるオプションを `--tracer`・`--set policy.fail_fast=false` のように追加する。
 ## 設計付録 C: チャットボット事例
 ### 目的
 - FAQ 応答から必要に応じて人へのエスカレーションまで行う “サポートチャットボット” を実装し、マルチエージェント構成と Policy 活用例を提供する。
