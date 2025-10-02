@@ -1,0 +1,38 @@
+flow:
+  entry: inspect
+  nodes:
+    inspect:
+      type: illumo_flow.nodes.WorkspaceInspectorNode
+      setting:
+        default_root: examples/multi_agent/coding_assistant/sample_app
+        allowed_extensions: [".py", ".md"]
+        preview_lines: 10
+      context:
+        outputs: $ctx.workspace.structure
+    apply_patch:
+      type: illumo_flow.nodes.PatchNode
+      setting:
+        default_root: examples/multi_agent/coding_assistant/sample_app
+        allowed_paths:
+          - sample_app/__init__.py
+        summary_path: $ctx.diff.summary
+      context:
+        inputs:
+          diff: $ctx.diff.proposed
+        outputs: $ctx.workspace.files
+    run_tests:
+      type: illumo_flow.nodes.TestExecutorNode
+      setting:
+        default_root: examples/multi_agent/coding_assistant/sample_app
+        command: ["pytest", "-q"]
+        timeout: 60
+      context:
+        outputs: $ctx.tests.results
+    summarize:
+      type: illumo_flow.nodes.SummaryAgent
+      context:
+        outputs: $ctx.summary.report
+  edges:
+    - inspect >> apply_patch
+    - apply_patch >> run_tests
+    - run_tests >> summarize
