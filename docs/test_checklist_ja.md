@@ -35,3 +35,6 @@
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_filters_by_extension — 許可外拡張子が除外され理由が記録されることを確認
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_respects_max_bytes — ファイルサイズ上限超過でプレビューを空にし除外理由を残すことを確認
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_rejects_missing_root — ルート不在時に FlowError が送出されることを確認
+- [x] tests/test_workspace_nodes.py::test_patch_node_applies_diff_without_writing — 統一diffを適用してもディスクを変更しないことを確認
+- [x] tests/test_workspace_nodes.py::test_patch_node_respects_allowed_paths — 許可されないパスへのパッチを拒否することを確認
+- [x] tests/test_workspace_nodes.py::test_patch_node_write_option — `write` 指定時のみディスクへ適用されることを確認

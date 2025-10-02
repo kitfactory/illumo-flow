@@ -35,3 +35,6 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_filters_by_extension — Ensures disallowed extensions are excluded with reasons
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_respects_max_bytes — Confirms oversized files omit previews and record exclusion reasons
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_rejects_missing_root — Raises FlowError when the target root is absent
+- [x] tests/test_workspace_nodes.py::test_patch_node_applies_diff_without_writing — Applies unified diffs to context data without touching disk
+- [x] tests/test_workspace_nodes.py::test_patch_node_respects_allowed_paths — Rejects patches targeting disallowed paths
+- [x] tests/test_workspace_nodes.py::test_patch_node_write_option — Writes patched content to disk only when requested
