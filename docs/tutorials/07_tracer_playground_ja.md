@@ -41,8 +41,8 @@ illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://
 
 ## トレーサーの見どころ
 - ConsoleTracer は `[FLOW]` span を白、`[NODE]` span をシアンで表示し、Agent の instruction/input/response は黄・青・緑で色分けします。
-- SQLiteTracer は `SQLiteTracerDB` を内部に持ち、`spans` / `events` テーブルへ永続化します。SQL クエリでリトライやルーティングを後追いできます。
-- OtelTracer は `TempoTracerDB(exporter=...)` を介して OTLP エクスポーターへバッチ送信できます。
+- SQLiteTracer は `spans` / `events` テーブルへ永続化するため、SQL を使ってリトライやルーティングの履歴を分析できます。
+- OtelTracer は `exporter=my_exporter` で渡したエクスポーターにバッチ送信します（OTLP クライアントなど）。
 - どのトレーサーも同じペイロードを受け取るため、切り替えてもビジネスロジックには影響しません。観測先だけが変わります。
 
 ### 出力例

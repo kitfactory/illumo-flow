@@ -152,50 +152,31 @@
 - 単体テスト: PatchNode のパス制限、TestExecutorNode のタイムアウト動作を pytest で検証。
 - 統合テスト: サンプルリポジトリを fixtures に準備し、実際に diff → patch → pytest → review の流れを実行。
 
-## 設計付録 B: TracerDB インターフェース
+## 設計付録 B: TracerDB（トレース検索クライアント）
 ### 目的と背景
-- ConsoleTracer のみで完結しない運用向けに、永続化ストア（SQLite / Tempo）とトレーサーの橋渡しをする共通レイヤーを提供。
-- トレーサー実装者が DB/API の違いを意識せずに Span を記録できるようにする。
+- トレーサーが書き出した SQLite ベースのトレースを後から参照・検索するための読み取り用クラスを提供する。
+- 永続化自体はトレーサー（Console / SQLite / OTEL）が担い、TracerDB は分析者やツールが既存データを絞り込むために利用する。
 
-### インターフェース仕様
-```python
-class TracerDB(Protocol):
-    def connect(self) -> None: ...
-    def record_span(self, span: SpanData) -> None: ...
-    def record_event(self, span_id: str, event: EventData) -> None: ...
-    def flush(self) -> None: ...
-    def close(self) -> None: ...
-```
-- `SpanData` / `EventData`: 既存トレーサーが扱う辞書形式を dataclass 化して共通化。
-- 実装は同期 I/O を前提。将来的な非同期化を見越し、`flush` を明示。
-
-### SQLiteTracerDB
+### SQLiteTraceReader
 - 依存: `sqlite3`（標準ライブラリ）。
-- テーブル設計
-  - `spans(span_id TEXT PRIMARY KEY, trace_id TEXT, parent_id TEXT, name TEXT, start TIMESTAMP, end TIMESTAMP, status TEXT, attributes JSON)`
-  - `events(id INTEGER PRIMARY KEY AUTOINCREMENT, span_id TEXT, name TEXT, timestamp TIMESTAMP, attributes JSON)`
-- 実装ポイント
-  - `connect()` で DB ファイルを生成、PRAGMA `journal_mode=WAL` を設定。
-  - `record_span()` はトランザクションにバッチング（コンテキストマネージャで制御）。
-  - `flush()` で `conn.commit()`、`close()` でリソース解放。
-- 開発者操作
-  - `FlowRuntime.configure(tracer=SQLiteTracer(db_path="...", db=SQLiteTracerDB(db_path="...")))`
-  - CLI: `illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db`
-  - 分析: `sqlite3 trace.db 'SELECT * FROM spans ORDER BY start DESC LIMIT 10'`
+- 主な API:
+  - `trace_ids(limit=None)` … 保存済みトレースIDの一覧を取得。
+  - `spans(trace_id=None, span_id=None, name=None, kind=None, status=None, limit=None)` … 条件指定で span レコードを取得。
+  - `events(trace_id=None, span_id=None, event_type=None, level=None, limit=None)` … span に紐付くイベントを取得。
+- `attributes` を文字列として保存しているテーブルに対しては `ast.literal_eval` で辞書に戻して返却する。
+- 使用例:
+  ```python
+  from illumo_flow.tracing_db import SQLiteTraceReader
 
-### TempoTracerDB
-- 依存: OTLP gRPC エクスポーター（`opentelemetry-exporter-otlp`）。
-- `record_span()` で SpanData を OTEL span に変換し、Exporter へ送信。
-- リトライ戦略: `grpc.RpcError` を捕捉し、指数バックオフ（3 回）で再送。
-- `flush()` は Exporter の `force_flush()` を呼ぶ。
-- 設定例
-  - `FlowRuntime.configure(tracer=OtelTracer(db=TempoTracerDB(endpoint="http://tempo:4317")))`
-  - CLI: `illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://tempo:4317`
+  reader = SQLiteTraceReader('trace.db')
+  spans = reader.spans(trace_id='abc123')
+  events = reader.events(span_id=spans[0].span_id)
+  ```
 
-### システム統合
-- 既存の `SQLiteTracer` / `OtelTracer` を改修し、内部で TracerDB を注入する構造に変更。
-- ConsoleTracer は DB を使用しないが、インターフェースに適合させることで将来拡張可能にする。
-- テスト: SQLiteTracerDB のファイル作成、TempoTracerDB のモックエクスポーター送信を pytest でカバー。
+### CLI / ツール統合
+- SQL で直接操作する場合は `SELECT * FROM spans` / `events` テーブルを利用。
+- 将来的に CLI を導入する場合は `illumo trace --list` などのサブコマンドで Reader を呼び出す形を想定。
+- OTEL/Tempo など外部監視システムでは既存 exporter を利用し、TracerDB の検索機能は SQLite ベースの運用・分析用途に限定する。
 
 ## 設計付録 C: チャットボット事例
 ### 目的
@@ -222,7 +203,7 @@ class TracerDB(Protocol):
 ### 開発者操作
 - `examples/multi_agent/chat_bot/faq_flow.yaml` を編集し、FAQ データソースまたは API エンドポイントを指定。
 - CLI: `illumo run faq_flow.yaml --context '@examples/multi_agent/chat_bot/context.json'`
-- 監視: SQLiteTracerDB を参照してセッション単位の span を確認。
+- 監視: SQLiteTraceReader を参照してセッション単位の span を確認。
 
 ### 不足機能の洗い出し
 - HandoffNode: 汎用 HTTP POST ノード（リトライ含む）が必要か検討。

@@ -38,10 +38,10 @@
 - [x] サンプルプロジェクト（`sample_app/`）と YAML を整備。
 - [x] ドキュメント更新（README / tutorials / examples README）。
 
-### 1.1 TracerDB インターフェース（SQLite / Tempo）
+### 1.1 Tracer クエリ機能（SQLite）
 - [x] TracerDB Protocol 定義。
-- [x] SQLiteTracerDB 実装 + テスト + CLI 検証。
-- [x] TempoTracerDB 実装 + テスト + CLI 検証。
+- [x] SQLiteTraceReader 実装 + テスト。
+- [x] Tracer の OTEL エクスポート検証。
 - [x] 既存トレーサーを TracerDB 化し、後方互換性を確認。
 - [ ] ドキュメント更新（設定例・ベストプラクティス）。
 

@@ -131,7 +131,6 @@ class Tracer(Protocol):
 
 ```python
 from illumo_flow import FlowRuntime, ConsoleTracer, SQLiteTracer, OtelTracer
-from illumo_flow.tracing_db import TempoTracerDB
 
 # Console
 FlowRuntime.configure(tracer=ConsoleTracer())
@@ -141,10 +140,7 @@ FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
 
 # OTEL (TempoTracerDB 経由)
 FlowRuntime.configure(
-    tracer=OtelTracer(
-        service_name="illumo-flow",
-        db=TempoTracerDB(exporter=my_exporter),
-    )
+    tracer=OtelTracer(exporter=my_exporter),
 )
 ```
 

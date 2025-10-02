@@ -21,10 +21,8 @@ Forward spans to Tempo or any OTLP-compatible collector by wiring `OtelTracer` w
 
 ```python
 from illumo_flow import FlowRuntime, OtelTracer
-from illumo_flow.tracing_db import TempoTracerDB
-
 FlowRuntime.configure(
-    tracer=OtelTracer(db=TempoTracerDB(exporter=my_otlp_exporter)),
+    tracer=OtelTracer(exporter=my_otlp_exporter),
 )
 ```
 
@@ -36,6 +34,16 @@ illumo run flow.yaml --tracer otel --tracer-arg exporter=my_exporter_module:buil
 ```
 
 `ConsoleTracer` は即時デバッグ向け、SQLite / Tempo バックエンドは履歴保存やダッシュボード連携に適しています。
+
+
+### Trace querying example
+```python
+from illumo_flow.tracing_db import SQLiteTraceReader
+
+reader = SQLiteTraceReader('illumo_trace.db')
+for span in reader.spans(kind='node', limit=5):
+    print(span.name, span.status)
+```
 
 ## Installation
 ```bash

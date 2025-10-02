@@ -1,204 +1,178 @@
-"""Tracer database backends for persistence and exporting."""
+"""Utilities for querying recorded trace data."""
 
 from __future__ import annotations
 
-import json
+import ast
 import sqlite3
-import threading
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional, Protocol
+from typing import Any, Iterable, List, Optional
 
 
-class TracerDB(Protocol):
-    """Persistence contract used by tracer implementations."""
-
-    def connect(self) -> None:
-        """Initialise any resources needed by the backend."""
-
-    def record_span(self, span: Mapping[str, Any]) -> None:
-        """Persist span information (start/end updates are both delivered here)."""
-
-    def record_event(self, event: Mapping[str, Any]) -> None:
-        """Persist tracer events tied to spans."""
-
-    def flush(self) -> None:
-        """Flush in-memory buffers to the underlying store (if applicable)."""
-
-    def close(self) -> None:
-        """Release resources held by the backend."""
+@dataclass
+class SpanRecord:
+    span_id: str
+    trace_id: str
+    parent_span_id: Optional[str]
+    service_name: Optional[str]
+    kind: Optional[str]
+    name: Optional[str]
+    status: Optional[str]
+    error: Optional[str]
+    start_time: Optional[str]
+    end_time: Optional[str]
+    attributes: dict[str, Any]
 
 
-class SQLiteTracerDB:
-    """SQLite-backed TracerDB implementation."""
+@dataclass
+class EventRecord:
+    id: int
+    trace_id: str
+    span_id: str
+    event_type: Optional[str]
+    level: Optional[str]
+    message: Optional[str]
+    attributes: dict[str, Any]
+    timestamp: Optional[str]
 
-    def __init__(self, *, db_path: str | Path = "illumo_trace.db") -> None:
-        self._path = str(db_path)
-        self._conn: Optional[sqlite3.Connection] = None
-        self._lock = threading.Lock()
 
-    def connect(self) -> None:  # type: ignore[override]
-        if self._conn is not None:
-            return
-        self._conn = sqlite3.connect(self._path, check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        with self._lock:
-            cur = self._conn.cursor()
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS spans (
-                    span_id TEXT PRIMARY KEY,
-                    trace_id TEXT,
-                    parent_span_id TEXT,
-                    service_name TEXT,
-                    kind TEXT,
-                    name TEXT,
-                    attributes TEXT,
-                    status TEXT,
-                    error TEXT,
-                    start_time TEXT,
-                    end_time TEXT
-                )
-                """
+class SQLiteTraceReader:
+    """Query spans and events stored by `SQLiteTracer`."""
+
+    def __init__(self, db_path: str | Path) -> None:
+        path = Path(db_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Trace database not found: {path}")
+        self._path = path
+
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self._path)
+
+    def trace_ids(self, limit: Optional[int] = None) -> List[str]:
+        query = "SELECT DISTINCT trace_id FROM spans ORDER BY start_time DESC"
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(query)
+            return [row[0] for row in cur.fetchall() if row[0]]
+
+    def spans(
+        self,
+        *,
+        trace_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        name: Optional[str] = None,
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[SpanRecord]:
+        query = "SELECT span_id, trace_id, parent_span_id, service_name, kind, name, attributes, status, error, start_time, end_time FROM spans"
+        conditions: List[str] = []
+        params: List[Any] = []
+        if span_id:
+            conditions.append("span_id = ?")
+            params.append(span_id)
+        if trace_id:
+            conditions.append("trace_id = ?")
+            params.append(trace_id)
+        if name:
+            conditions.append("name = ?")
+            params.append(name)
+        if kind:
+            conditions.append("kind = ?")
+            params.append(kind)
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY start_time"
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+        return [
+            SpanRecord(
+                span_id=row[0],
+                trace_id=row[1],
+                parent_span_id=row[2],
+                service_name=row[3],
+                kind=row[4],
+                name=row[5],
+                attributes=self._parse_literal(row[6]),
+                status=row[7],
+                error=row[8],
+                start_time=row[9],
+                end_time=row[10],
             )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    trace_id TEXT,
-                    span_id TEXT,
-                    event_type TEXT,
-                    level TEXT,
-                    message TEXT,
-                    attributes TEXT,
-                    timestamp TEXT
-                )
-                """
+            for row in rows
+        ]
+
+    def events(
+        self,
+        *,
+        trace_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        level: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[EventRecord]:
+        query = "SELECT id, trace_id, span_id, event_type, level, message, attributes, timestamp FROM events"
+        conditions: List[str] = []
+        params: List[Any] = []
+        if trace_id:
+            conditions.append("trace_id = ?")
+            params.append(trace_id)
+        if span_id:
+            conditions.append("span_id = ?")
+            params.append(span_id)
+        if event_type:
+            conditions.append("event_type = ?")
+            params.append(event_type)
+        if level:
+            conditions.append("level = ?")
+            params.append(level)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY timestamp"
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+        return [
+            EventRecord(
+                id=row[0],
+                trace_id=row[1],
+                span_id=row[2],
+                event_type=row[3],
+                level=row[4],
+                message=row[5],
+                attributes=self._parse_literal(row[6]),
+                timestamp=row[7],
             )
-            self._conn.commit()
+            for row in rows
+        ]
 
-    def record_span(self, span: Mapping[str, Any]) -> None:  # type: ignore[override]
-        if self._conn is None:
-            raise RuntimeError("SQLiteTracerDB.connect() must be called before use")
-        payload = dict(span)
-        attributes = json.dumps(payload.get("attributes") or {}, ensure_ascii=False)
-        with self._lock:
-            cur = self._conn.cursor()
-            cur.execute(
-                """
-                INSERT INTO spans (
-                    span_id, trace_id, parent_span_id, service_name,
-                    kind, name, attributes, status, error, start_time, end_time
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(span_id) DO UPDATE SET
-                    trace_id = excluded.trace_id,
-                    parent_span_id = excluded.parent_span_id,
-                    service_name = excluded.service_name,
-                    kind = excluded.kind,
-                    name = excluded.name,
-                    attributes = excluded.attributes,
-                    status = COALESCE(excluded.status, spans.status),
-                    error = COALESCE(excluded.error, spans.error),
-                    start_time = COALESCE(spans.start_time, excluded.start_time),
-                    end_time = COALESCE(excluded.end_time, spans.end_time)
-                """,
-                (
-                    payload.get("span_id"),
-                    payload.get("trace_id"),
-                    payload.get("parent_span_id"),
-                    payload.get("service_name"),
-                    payload.get("kind"),
-                    payload.get("name"),
-                    attributes,
-                    payload.get("status"),
-                    payload.get("error"),
-                    payload.get("start_time"),
-                    payload.get("end_time"),
-                ),
-            )
-            self._conn.commit()
-
-    def record_event(self, event: Mapping[str, Any]) -> None:  # type: ignore[override]
-        if self._conn is None:
-            raise RuntimeError("SQLiteTracerDB.connect() must be called before use")
-        payload = dict(event)
-        attributes = json.dumps(payload.get("attributes") or {}, ensure_ascii=False)
-        with self._lock:
-            cur = self._conn.cursor()
-            cur.execute(
-                """
-                INSERT INTO events (
-                    trace_id, span_id, event_type, level, message, attributes, timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    payload.get("trace_id"),
-                    payload.get("span_id"),
-                    payload.get("event_type"),
-                    payload.get("level"),
-                    payload.get("message"),
-                    attributes,
-                    payload.get("timestamp"),
-                ),
-            )
-            self._conn.commit()
-
-    def flush(self) -> None:  # type: ignore[override]
-        if self._conn is not None:
-            with self._lock:
-                self._conn.commit()
-
-    def close(self) -> None:  # type: ignore[override]
-        if self._conn is not None:
-            try:
-                self._conn.close()
-            finally:
-                self._conn = None
-
-
-class TempoTracerDB:
-    """TracerDB implementation that forwards spans to an OTLP exporter."""
-
-    def __init__(self, *, exporter: Optional[Any] = None, max_batch_size: int = 50) -> None:
-        self._exporter = exporter
-        self._max_batch_size = max_batch_size
-        self._spans: dict[str, dict[str, Any]] = {}
-
-    def connect(self) -> None:  # type: ignore[override]
-        self._spans = {}
-
-    def record_span(self, span: Mapping[str, Any]) -> None:  # type: ignore[override]
-        payload = dict(span)
-        span_id = str(payload.get("span_id"))
-        if not span_id:
-            return
-        existing = self._spans.get(span_id, {})
-        merged = {**existing, **payload}
-        self._spans[span_id] = merged
-        if len(self._spans) >= self._max_batch_size:
-            self.flush()
-
-    def record_event(self, event: Mapping[str, Any]) -> None:  # type: ignore[override]
-        span_id = event.get("span_id")
-        if span_id is None:
-            return
-        payload = self._spans.setdefault(str(span_id), {"span_id": span_id})
-        payload.setdefault("events", []).append(dict(event))
-
-    def flush(self) -> None:  # type: ignore[override]
-        if not self._spans or self._exporter is None:
-            return
-        batch: Iterable[dict[str, Any]] = list(self._spans.values())
-        self._spans = {}
+    @staticmethod
+    def _parse_literal(value: Any) -> dict[str, Any]:
+        if not value:
+            return {}
         try:
-            self._exporter.export(list(batch))
+            parsed = ast.literal_eval(value)
+            if isinstance(parsed, dict):
+                return parsed
         except Exception:
-            for item in batch:
-                span_id = str(item.get("span_id"))
-                if span_id:
-                    self._spans[span_id] = item
-
-    def close(self) -> None:  # type: ignore[override]
-        self.flush()
+            pass
+        return {"raw": value}
 
 
-__all__ = ["TracerDB", "SQLiteTracerDB", "TempoTracerDB"]
+__all__ = ["SQLiteTraceReader", "SpanRecord", "EventRecord"]

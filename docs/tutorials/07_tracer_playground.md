@@ -15,7 +15,6 @@ Observe every flow/node span and log without sprinkling print statements.
 
 ```python
 from illumo_flow import FlowRuntime, ConsoleTracer, SQLiteTracer, OtelTracer
-from illumo_flow.tracing_db import TempoTracerDB
 
 # Console: instruction/input/response are colorized for quick scanning
 FlowRuntime.configure(tracer=ConsoleTracer())
@@ -24,12 +23,7 @@ FlowRuntime.configure(tracer=ConsoleTracer())
 FlowRuntime.configure(tracer=SQLiteTracer(db_path="./trace.db"))
 
 # OTEL
-FlowRuntime.configure(
-    tracer=OtelTracer(
-        service_name="illumo-flow",
-        db=TempoTracerDB(exporter=my_exporter),
-    )
-)
+FlowRuntime.configure(tracer=OtelTracer(exporter=my_exporter))
 ```
 
 CLI switches too:
@@ -40,8 +34,8 @@ illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://
 
 ## Tracer insights
 - ConsoleTracer prints `[FLOW]` spans in bright white and `[NODE]` spans in cyan; Agent instruction/input/response segments use yellow/blue/green respectively.
-- SQLiteTracer now delegates to `SQLiteTracerDB`, so spans/events live in `spans` / `events` tables—great for building SQL dashboards.
-- OtelTracer can be backed by `TempoTracerDB(exporter=...)` to reuse the OTLP exporter you already have in production.
+- SQLiteTracer stores spans/events in the `spans` / `events` tables—run SQL queries to audit retries or routing decisions.
+- OtelTracer forwards buffered spans to the exporter supplied via `exporter=my_exporter` (for example, an OTLP client).
 - All tracers receive the same payload, so switching them never changes business logic—only the destination of telemetry.
 
 ### Sample output
