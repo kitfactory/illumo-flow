@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import contextvars
-import sqlite3
 import sys
-import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Mapping, MutableMapping, Optional, Protocol, Sequence
 
+from .tracing_db import SQLiteTracerDB, TempoTracerDB, TracerDB
 
 class TracerProtocol(Protocol):
     """Minimal tracing protocol aligned with OpenAI Agents SDK."""
@@ -285,157 +284,60 @@ class ConsoleTracer:
 
 
 class SQLiteTracer:
-    """Tracer that persists spans and events into a SQLite database."""
+    """Tracer that persists spans and events via a TracerDB backend."""
 
-    def __init__(self, *, db_path: str | Path = "illumo_trace.db") -> None:
-        self._path = str(db_path)
-        self._lock = threading.Lock()
-        self._conn = sqlite3.connect(self._path, check_same_thread=False)
-        self._prepare_schema()
-
-    def _prepare_schema(self) -> None:
-        with self._lock:
-            cur = self._conn.cursor()
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS spans (
-                    span_id TEXT PRIMARY KEY,
-                    trace_id TEXT,
-                    parent_span_id TEXT,
-                    service_name TEXT,
-                    kind TEXT,
-                    name TEXT,
-                    attributes TEXT,
-                    status TEXT,
-                    error TEXT,
-                    start_time TEXT,
-                    end_time TEXT
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    trace_id TEXT,
-                    span_id TEXT,
-                    event_type TEXT,
-                    level TEXT,
-                    message TEXT,
-                    attributes TEXT,
-                    timestamp TEXT
-                )
-                """
-            )
-            self._conn.commit()
+    def __init__(
+        self,
+        *,
+        db_path: str | Path = "illumo_trace.db",
+        db: Optional[TracerDB] = None,
+    ) -> None:
+        self._db: TracerDB = db or SQLiteTracerDB(db_path=db_path)
+        self._db.connect()
 
     def on_span_start(self, span: Mapping[str, Any]) -> None:
-        with self._lock:
-            cur = self._conn.cursor()
-            cur.execute(
-                """
-                INSERT OR REPLACE INTO spans (
-                    span_id, trace_id, parent_span_id, service_name,
-                    kind, name, attributes, start_time
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    span.get("span_id"),
-                    span.get("trace_id"),
-                    span.get("parent_span_id"),
-                    span.get("service_name"),
-                    span.get("kind"),
-                    span.get("name"),
-                    repr(span.get("attributes") or {}),
-                    span.get("start_time"),
-                ),
-            )
-            self._conn.commit()
+        self._db.record_span(span)
 
     def on_span_end(self, span: Mapping[str, Any]) -> None:
-        with self._lock:
-            cur = self._conn.cursor()
-            cur.execute(
-                """
-                UPDATE spans
-                   SET status = ?, error = ?, end_time = ?, attributes = COALESCE(?, attributes)
-                 WHERE span_id = ?
-                """,
-                (
-                    span.get("status"),
-                    span.get("error"),
-                    span.get("end_time"),
-                    repr(span.get("attributes")) if span.get("attributes") else None,
-                    span.get("span_id"),
-                ),
-            )
-            self._conn.commit()
+        self._db.record_span(span)
 
     def on_event(self, event: Mapping[str, Any]) -> None:
-        with self._lock:
-            cur = self._conn.cursor()
-            cur.execute(
-                """
-                INSERT INTO events (
-                    trace_id, span_id, event_type, level, message, attributes, timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.get("trace_id"),
-                    event.get("span_id"),
-                    event.get("event_type"),
-                    event.get("level"),
-                    event.get("message"),
-                    repr(event.get("attributes") or {}),
-                    event.get("timestamp"),
-                ),
-            )
-            self._conn.commit()
+        self._db.record_event(event)
 
     def close(self) -> None:
-        try:
-            self._conn.close()
-        except Exception:
-            pass
+        self._db.close()
 
 
 class OtelTracer:
-    """Tracer that buffers spans and forwards them to an exporter."""
+    """Tracer that forwards spans and events through a TracerDB backend."""
 
     def __init__(
         self,
         *,
         service_name: str = "illumo-flow",
         exporter: Optional[Any] = None,
+        db: Optional[TracerDB] = None,
     ) -> None:
         self._service_name = service_name
-        self._exporter = exporter
-        self._spans: Dict[str, Dict[str, Any]] = {}
+        self._db: TracerDB = db or TempoTracerDB(exporter=exporter)
+        self._db.connect()
 
     def on_span_start(self, span: Mapping[str, Any]) -> None:
         payload = dict(span)
         payload.setdefault("service_name", self._service_name)
-        payload["events"] = []
-        self._spans[span["span_id"]] = payload
+        self._db.record_span(payload)
 
     def on_span_end(self, span: Mapping[str, Any]) -> None:
-        payload = self._spans.pop(span["span_id"], {}).copy()
-        payload.update(span)
+        payload = dict(span)
         payload.setdefault("service_name", self._service_name)
-        if self._exporter is not None:
-            try:
-                self._exporter.export([payload])
-            except Exception:
-                pass
+        self._db.record_span(payload)
+        self._db.flush()
 
     def on_event(self, event: Mapping[str, Any]) -> None:
-        span_id = event.get("span_id")
-        if span_id is None:
-            return
-        payload = self._spans.get(span_id)
-        if payload is None:
-            return
-        payload.setdefault("events", []).append(dict(event))
+        self._db.record_event(event)
+
+    def close(self) -> None:
+        self._db.close()
 
 
 __all__ = [

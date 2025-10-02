@@ -41,3 +41,5 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_workspace_nodes.py::test_test_executor_runs_pytest — Executes pytest in the target workspace and captures results
 - [x] tests/test_workspace_nodes.py::test_test_executor_records_failures — Captures non-zero exit codes without raising
 - [x] tests/test_workspace_nodes.py::test_summary_agent_compiles_report — Aggregates workspace, test, and review data into a summary
+- [x] tests/test_tracing_backends.py::test_sqlite_tracer_db_persists_span_and_event — Validates SQLite tracer DB records spans/events
+- [x] tests/test_tracing_backends.py::test_tempo_tracer_db_exports_spans — Confirms Tempo tracer DB forwards spans to exporter
