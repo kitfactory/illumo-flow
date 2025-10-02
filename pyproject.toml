@@ -1,12 +1,15 @@
 [project]
 name = "illumo-flow"
-version = "0.1.4"
+version = "0.1.5"
 description = "Workflow orchestration primitives for illumo demo"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "PyYAML>=6",
 ]
+
+[project.scripts]
+illumo = "illumo_flow.cli:app"
 
 [build-system]
 requires = ["setuptools>=65"]

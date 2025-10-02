@@ -28,8 +28,12 @@ FlowRuntime.configure(tracer=OtelTracer(exporter=my_exporter))
 
 CLI switches too:
 ```bash
-illumo run flow_launch.yaml --tracer sqlite --tracer-arg db_path=./trace.db
-illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
+illumo run flow_launch.yaml --context '{"payload": {}}' --tracer sqlite --trace-db ./trace.db
+illumo run flow_launch.yaml --context '{"payload": {}}' --tracer otel --service-name tracer-demo
+
+# Query stored traces with TraceQL-inspired filters
+illumo trace list --traceql 'traces{} | pick(trace_id, root_service, start_time) | limit 5'
+illumo trace search --traceql 'span.attributes["node_id"] == "inspect"'
 ```
 
 ## Tracer insights

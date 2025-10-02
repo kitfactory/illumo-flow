@@ -30,7 +30,9 @@
 - [x] tests/test_flow_examples.py::test_console_tracer_emits_flow_and_node_spans — ConsoleTracerがフロー・ノードの開始/終了メッセージを出力することを確認
 - [x] tests/test_flow_examples.py::test_sqlite_tracer_persists_spans — SQLiteTracerがspan情報を永続化することを確認
 - [x] tests/test_flow_examples.py::test_otel_tracer_exports_spans — OtelTracerがエクスポーターへspanを送信することを確認
-- [ ] CLI手動確認 — `illumo run` による `--tracer`／Policy 上書きの動作確認を実施
+- [x] tests/test_flow_examples.py::test_cli_run_happy_path — JSONコンテキスト読取での `illumo run` ハッピーパスを検証
+- [x] tests/test_flow_examples.py::test_cli_run_reports_failure — CLIが失敗時に非ゼロ終了コードを返すことを確認
+- [x] CLI手動確認 — `illumo run` による `--tracer`／Policy 上書きの動作確認を実施
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_collects_selected_files — WorkspaceInspectorNode が選択ファイルのプレビューを取得することを確認
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_filters_by_extension — 許可外拡張子が除外され理由が記録されることを確認
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_respects_max_bytes — ファイルサイズ上限超過でプレビューを空にし除外理由を残すことを確認
@@ -43,3 +45,5 @@
 - [x] tests/test_workspace_nodes.py::test_summary_agent_compiles_report — 作業内容・テスト結果・レビュー要約を取りまとめることを確認
 - [x] tests/test_tracing_db.py::test_sqlite_trace_reader_lists_spans_and_events — 保存済み span/event を取得できることを確認
 - [x] tests/test_tracing_db.py::test_sqlite_trace_reader_filters_by_trace_id — trace_id で span をフィルタできることを確認
+- [x] tests/test_tracing_db.py::test_cli_trace_list_with_traceql — TraceQL の list パイプラインでトレースメタデータを検証
+- [x] tests/test_tracing_db.py::test_cli_trace_search_by_attribute — TraceQL 属性条件で span をフィルタできることを確認

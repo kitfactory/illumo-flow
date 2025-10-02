@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import io
+import json
 import sqlite3
 import sys
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, Mapping, MutableMapping, Optional
+from typing import Any, Dict, Mapping, MutableMapping, Optional, Sequence
 
 import pytest
 import yaml
@@ -38,6 +39,7 @@ from illumo_flow import (
 from illumo_flow.core import get_llm
 from examples import ops
 from examples.sample_flows import EXAMPLE_FLOWS
+from illumo_flow.cli import main as cli_main
 
 
 RETRY_STATE: Dict[str, int] = {"count": 0}
@@ -774,3 +776,83 @@ def test_otel_tracer_exports_spans():
 
     assert any(span.get("kind") == "flow" for span in exported)
     assert any(span.get("kind") == "node" for span in exported)
+
+
+def test_cli_run_happy_path(tmp_path: Path) -> None:
+    flow_path = tmp_path / "flow.yaml"
+    flow_path.write_text(
+        textwrap.dedent(
+            """
+            flow:
+              entry: start
+              nodes:
+                start:
+                  type: illumo_flow.core.FunctionNode
+                  context:
+                    inputs:
+                      callable: tests.test_flow_examples.fn_emit_mapping
+                    outputs: $ctx.result
+              edges: []
+            """
+        ),
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "ctx.json"
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    exit_code = cli_main(
+        [
+            "run",
+            str(flow_path),
+            "--context",
+            "{}",
+            "--output",
+            str(output_path),
+            "--pretty",
+        ],
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert not stderr.getvalue()
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["result"] == {"a": 1, "b": 2}
+    assert payload["payloads"]["start"] == {"a": 1, "b": 2}
+
+
+def test_cli_run_reports_failure(tmp_path: Path) -> None:
+    flow_path = tmp_path / "fail_flow.yaml"
+    flow_path.write_text(
+        textwrap.dedent(
+            """
+            flow:
+              entry: boom
+              nodes:
+                boom:
+                  type: illumo_flow.core.FunctionNode
+                  context:
+                    inputs:
+                      callable: tests.test_flow_examples.fn_policy_fail
+              edges: []
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    exit_code = cli_main(
+        [
+            "run",
+            str(flow_path),
+            "--context",
+            "{}",
+        ],
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 1
+    assert "Flow execution failed" in stderr.getvalue()

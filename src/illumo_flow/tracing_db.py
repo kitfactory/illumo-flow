@@ -36,6 +36,16 @@ class EventRecord:
     timestamp: Optional[str]
 
 
+@dataclass
+class TraceSummary:
+    trace_id: str
+    root_service: Optional[str]
+    root_name: Optional[str]
+    start_time: Optional[str]
+    end_time: Optional[str]
+    span_count: int
+
+
 class SQLiteTraceReader:
     """Query spans and events stored by `SQLiteTracer`."""
 
@@ -56,6 +66,36 @@ class SQLiteTraceReader:
             cur = conn.cursor()
             cur.execute(query)
             return [row[0] for row in cur.fetchall() if row[0]]
+
+    def summaries(self, limit: Optional[int] = None) -> List[TraceSummary]:
+        query = (
+            "SELECT trace_id, "
+            "MAX(CASE WHEN parent_span_id IS NULL THEN service_name END) AS root_service, "
+            "MAX(CASE WHEN parent_span_id IS NULL THEN name END) AS root_name, "
+            "MIN(start_time) AS start_time, "
+            "MAX(end_time) AS end_time, "
+            "COUNT(*) AS span_count "
+            "FROM spans GROUP BY trace_id ORDER BY MIN(start_time) DESC"
+        )
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(query)
+            rows = cur.fetchall()
+
+        return [
+            TraceSummary(
+                trace_id=row[0],
+                root_service=row[1],
+                root_name=row[2],
+                start_time=row[3],
+                end_time=row[4],
+                span_count=int(row[5] or 0),
+            )
+            for row in rows
+        ]
 
     def spans(
         self,
@@ -175,4 +215,4 @@ class SQLiteTraceReader:
         return {"raw": value}
 
 
-__all__ = ["SQLiteTraceReader", "SpanRecord", "EventRecord"]
+__all__ = ["SQLiteTraceReader", "SpanRecord", "EventRecord", "TraceSummary"]

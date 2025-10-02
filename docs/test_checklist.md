@@ -30,7 +30,9 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_flow_examples.py::test_console_tracer_emits_flow_and_node_spans — Verifies console tracer outputs span lifecycle messages
 - [x] tests/test_flow_examples.py::test_sqlite_tracer_persists_spans — Confirms SQLite tracer records span rows for flow/node execution
 - [x] tests/test_flow_examples.py::test_otel_tracer_exports_spans — Ensures Otel tracer forwards span payloads to the configured exporter
-- [ ] CLI manual check — Run `illumo run` with `--tracer` / Policy overrides and confirm spans & policy behaviour interactively
+- [x] tests/test_flow_examples.py::test_cli_run_happy_path — Validates `illumo run` happy path using JSON context loading
+- [x] tests/test_flow_examples.py::test_cli_run_reports_failure — Ensures CLI surfaces flow failures with non-zero exit codes
+- [x] CLI manual check — Run `illumo run` with `--tracer` / Policy overrides and confirm spans & policy behaviour interactively
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_collects_selected_files — Verifies WorkspaceInspectorNode records previews for selected files
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_filters_by_extension — Ensures disallowed extensions are excluded with reasons
 - [x] tests/test_workspace_nodes.py::test_workspace_inspector_respects_max_bytes — Confirms oversized files omit previews and record exclusion reasons
@@ -43,3 +45,5 @@ Maintain deterministic runs by executing one test at a time and logging completi
 - [x] tests/test_workspace_nodes.py::test_summary_agent_compiles_report — Aggregates workspace, test, and review data into a summary
 - [x] tests/test_tracing_db.py::test_sqlite_trace_reader_lists_spans_and_events — Fetches stored span/event records by span id
 - [x] tests/test_tracing_db.py::test_sqlite_trace_reader_filters_by_trace_id — Filters spans by trace identifier
+- [x] tests/test_tracing_db.py::test_cli_trace_list_with_traceql — Exercises TraceQL list pipeline for trace metadata
+- [x] tests/test_tracing_db.py::test_cli_trace_search_by_attribute — Filters spans via TraceQL attribute equality

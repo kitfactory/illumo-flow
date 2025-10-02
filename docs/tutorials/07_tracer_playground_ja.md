@@ -35,8 +35,12 @@ FlowRuntime.configure(
 CLI から切り替える場合:
 
 ```bash
-illumo run flow_launch.yaml --tracer sqlite --tracer-arg db_path=./trace.db
-illumo run flow_launch.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
+illumo run flow_launch.yaml --context '{"payload": {}}' --tracer sqlite --trace-db ./trace.db
+illumo run flow_launch.yaml --context '{"payload": {}}' --tracer otel --service-name tracer-demo
+
+# TraceQL 風クエリでトレースを検索
+illumo trace list --traceql 'traces{} | pick(trace_id, root_service, start_time) | limit 5'
+illumo trace search --traceql 'span.attributes["node_id"] == "inspect"'
 ```
 
 ## トレーサーの見どころ

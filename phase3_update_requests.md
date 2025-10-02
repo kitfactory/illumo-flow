@@ -7,15 +7,16 @@
 ## 1. 必須対応 (Must)
 - [ ] CLI 本体（`illumo` エントリーポイント）を実装し、少なくとも以下のサブコマンドを提供する。
   - `illumo run FLOW_PATH --context CONTEXT_JSON [--tracer ... --policy ...]`
-  - `illumo trace list [--db trace.db]`
-  - `illumo trace show TRACE_ID [--db trace.db]`
+  - `illumo trace list --db trace.db --traceql 'traces{} | pick(trace_id, root_service, start_time) | limit 50'`
+  - `illumo trace show --db trace.db --traceql 'trace_id = "TRACE_ID"'`
+  - `illumo trace search --db trace.db --traceql 'span.attributes["node_id"] == "inspect"'`
 - [ ] CLI 実行で使用する JSON コンテキストの読み込み（文字列／`@path`／標準入力）をサポートする。
 - [ ] `FlowRuntime.configure` 経由の tracer / policy 指定を CLI フラグから切り替えられるようにする。
 - [ ] `illumo run` 実行結果の exit code（success=0, failure>0）とログ出力を整理し、CI で利用できる状態にする。
 
 ## 2. 優先対応 (Should)
 - [ ] `phase2_update_requests.md` で案内していたワンライナーを CLI に差し替え、README / チュートリアルの CLI 例も `illumo run` へ統一する。
-- [ ] Trace 検索コマンドで `SQLiteTraceReader` を利用し、`--span-id`, `--name`, `--kind`, `--limit` などのフィルタ機能を実装する。
+- [ ] Trace 検索コマンドで `SQLiteTraceReader` を利用し、TraceQL クエリ（`trace_id = "..."`, `span.attributes["node_id"] == "inspect"` など）によるフィルタと `--limit` 等のページングを提供する。
 - [ ] CLI 実行ログを `docs/tutorials/07_tracer_playground.md` に反映し、Console / SQLite / OTEL の切り替え手順を CLI ベースに置き換える。
 - [ ] `phase2_update_plan.md`/`phase2_update_requests.md` の CLI メモを Phase3 用に整理し、重複記載を避ける。
 
@@ -33,7 +34,7 @@
   3. `--tracer` / `--policy` / `--set` オプションで `FlowRuntime.configure` を上書き
   4. 実行結果の `ctx` を JSON で `--output` ファイル or stdout に書き出す
   5. 失敗時は exit code ≠ 0 / `stderr` に要約を表示
-- `illumo trace` サブコマンドは `SQLiteTraceReader` を利用し、デフォルトで `illumo_trace.db` を参照。`--db` で変更可能。
+- `illumo trace` サブコマンドは `SQLiteTraceReader` を利用し、デフォルトで `illumo_trace.db` を参照。`--db` で変更可能としつつ、TraceQL を `--traceql` フラグ経由で解釈して TraceID 列挙・TraceID 指定・属性条件検索を実現する。
 - 単体テストとして `tests/test_cli_run.py` などを追加し、`illumo run` の基本動作・エラーハンドリング・トレース表示を確認する。
 
 ## 5. 作業の進め方（推奨）

@@ -182,7 +182,7 @@
 ### CLI 実装方針
 - `illumo` コマンドを `python -m illumo_flow.cli` で提供。インストール時に `illumo` エントリーポイントを生成する。
 - サブコマンド案:
-  - `illumo run FLOW_PATH --context '@context.json' --tracer sqlite --tracer-arg db_path=trace.db`
+  - `illumo run FLOW_PATH --context '@context.json' --tracer sqlite --trace-db trace.db`
   - `illumo trace list` / `illumo trace show TRACE_ID` で `SQLiteTraceReader` を利用。
   - `illumo policy lint FLOW_PATH` で YAML 内の Policy 設定を検査。
 - 実装 TODO:

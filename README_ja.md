@@ -28,8 +28,8 @@ FlowRuntime.configure(
 CLI からは以下のように指定できます。
 
 ```bash
-illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db
-illumo run flow.yaml --tracer otel --tracer-arg exporter=my_exporter_module:build_exporter
+illumo run flow.yaml --context '{"payload": {}}' --tracer sqlite --trace-db illumo_trace.db
+illumo run flow.yaml --context '{"payload": {}}' --tracer otel --service-name demo-service
 ```
 
 ConsoleTracer は即時デバッグ用、SQLite / Tempo バックエンドは履歴保管・監視向けに活用してください。
@@ -111,11 +111,17 @@ print(context["data"]["persisted"])  # stored:42
 ```
 
 ## サンプル / CLI
-GitHub リポジトリには CLI（例: `python -m examples linear_etl`）とサンプル DSL が同梱されています。利用する場合はリポジトリを取得してください。
+GitHub リポジトリには CLI とサンプル DSL が同梱されています。利用する場合はリポジトリを取得してください。
 ```bash
 git clone https://github.com/kitfactory/illumo-flow.git
 cd illumo-flow
-python -m examples linear_etl
+
+# YAML フローを CLI から実行
+illumo run examples/multi_agent/chat_bot/chatbot_flow.yaml --context '{"chat": {"history": []}}'
+
+# TraceQL 風クエリでトレースを検索
+illumo trace list --traceql 'traces{} | pick(trace_id, root_service, start_time) | limit 10'
+illumo trace search --traceql 'span.attributes["node_id"] == "inspect"'
 ```
 
 ## YAML 設定からの構築
@@ -236,8 +242,8 @@ FlowRuntime.configure(
 
 CLI でも指定可能です。
 ```bash
-illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db
-illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
+illumo run flow.yaml --context '{"payload": {}}' --tracer sqlite --trace-db illumo_trace.db
+illumo run flow.yaml --context '{"payload": {}}' --tracer otel --service-name demo-service
 ```
 
 ### ポリシー設定

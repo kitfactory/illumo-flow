@@ -146,8 +146,8 @@ FlowRuntime.configure(
 
 CLI オプション例:
 ```bash
-illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db
-illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
+illumo run flow.yaml --context '{"payload": {}}' --tracer sqlite --trace-db illumo_trace.db
+illumo run flow.yaml --context '{"payload": {}}' --tracer otel --service-name demo-service
 ```
 
 ### 3.3 Policy インターフェース
@@ -745,7 +745,7 @@ edges:
 
 ## 5. CLI（環境変数は使用しない）
 
-* `illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317 --fail-fast=false --policy.retry.max=2`
+* `illumo run flow.yaml --context '{"payload": {}}' --tracer otel --service-name demo-service --policy '{"fail_fast": false, "retry": {"max_attempts": 2}}'`
 * LLM プロバイダ/モデル指定（例）:
 
   * `illumo run flow.yaml --set nodes.Refine.provider=openai --set nodes.Refine.model=gpt-4.1-mini`

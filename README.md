@@ -26,14 +26,14 @@ FlowRuntime.configure(
 )
 ```
 
-CLI からの切り替え例:
+CLI equivalent commands:
 
 ```bash
-illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db
-illumo run flow.yaml --tracer otel --tracer-arg exporter=my_exporter_module:build_exporter
+illumo run flow.yaml --context @context.json --tracer sqlite --trace-db illumo_trace.db
+illumo run flow.yaml --context @context.json --tracer otel --service-name demo-service
 ```
 
-`ConsoleTracer` は即時デバッグ向け、SQLite / Tempo バックエンドは履歴保存やダッシュボード連携に適しています。
+`ConsoleTracer` is ideal for ad-hoc debugging, while SQLite / Tempo backends preserve history for dashboards./ConsoleTracer は即時デバッグ向け、SQLite / Tempo バックエンドは履歴保存やダッシュボード連携に適しています。
 
 
 ### Trace querying example
@@ -111,12 +111,23 @@ print(context["data"]["persisted"])  # stored:42
 ```
 
 ## Examples & CLI
-The GitHub repository ships reference examples and a CLI (e.g. `python -m examples linear_etl`).
-Clone the repo if you want to explore them locally:
+The repository ships runnable flows and a CLI:
+
+```bash
+# Execute a YAML flow with JSON context
+illumo run examples/multi_agent/chat_bot/chatbot_flow.yaml --context '{"chat": {"history": []}}'
+
+# Inspect recent traces with TraceQL-inspired filters
+illumo trace list --traceql 'traces{} | pick(trace_id, root_service, start_time) | limit 10'
+illumo trace search --traceql 'span.attributes["node_id"] == "inspect"'
+```
+
+Clone the repo if you want to explore samples locally:
+
 ```bash
 git clone https://github.com/kitfactory/illumo-flow.git
 cd illumo-flow
-python -m examples linear_etl
+illumo run examples/multi_agent/chat_bot/chatbot_flow.yaml --context '{"chat": {"history": []}}'
 ```
 
 ## YAML Configuration
@@ -236,10 +247,10 @@ FlowRuntime.configure(
 )
 ```
 
-CLI からも切り替え可能です。
+CLI equivalents:
 ```bash
-illumo run flow.yaml --tracer sqlite --tracer-arg db_path=./trace.db
-illumo run flow.yaml --tracer otel --tracer-arg exporter_endpoint=http://localhost:4317
+illumo run flow.yaml --context '{"payload": {}}' --tracer sqlite --trace-db illumo_trace.db
+illumo run flow.yaml --context '{"payload": {}}' --tracer otel --service-name demo-service
 ```
 
 ### Policy Configuration
