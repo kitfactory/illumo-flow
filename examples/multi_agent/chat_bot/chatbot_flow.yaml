@@ -1,0 +1,49 @@
+flow:
+  entry: greet
+  nodes:
+    greet:
+      type: illumo_flow.nodes.Agent
+      context:
+        inputs:
+          prompt: |
+            ユーザーとのサポートセッションを開始します。
+            挨拶しつつ問い合わせ内容を要約してください。
+        outputs: $ctx.chat.greeting
+    faq_router:
+      type: illumo_flow.nodes.RouterAgent
+      context:
+        inputs:
+          prompt: |
+            問い合わせ: {{ $ctx.chat.history[-1].message if $ctx.chat.history else '不明' }}
+            FAQ として回答できる場合は FAQ、難しければ ESCALATE を返してください。
+        choices: [FAQ, ESCALATE]
+        output_path: $ctx.chat.routing
+        metadata_path: $ctx.chat.routing_reason
+    faq:
+      type: illumo_flow.nodes.Agent
+      context:
+        inputs:
+          prompt: |
+            FAQデータベースから適切な回答を生成してください。
+            参考情報: {{ $ctx.chat.history[-1].message if $ctx.chat.history else '' }}
+        outputs: $ctx.chat.answer
+    handoff:
+      type: illumo_flow.core.FunctionNode
+      routing_rule: illumo_flow.core.FlowError
+      context:
+        inputs:
+          callable: examples.multi_agent.chat_bot.handoff.handoff_to_human
+          payload: $ctx.chat
+        outputs: $ctx.chat.handoff
+    audit:
+      type: illumo_flow.core.FunctionNode
+      context:
+        inputs:
+          callable: examples.multi_agent.chat_bot.handoff.audit_conversation
+          history: $ctx.chat.history
+        outputs: $ctx.chat.audit
+  edges:
+    - greet >> faq_router
+    - faq_router >> faq
+    - faq_router >> handoff
+    - faq_router >> audit
