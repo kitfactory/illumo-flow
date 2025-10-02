@@ -14,12 +14,11 @@
 - Git and `uv` (optional but recommended).
 
 ## Steps
-1. **Clone / install**
+1. **Install**
    ```bash
-   git clone https://github.com/kitfactory/illumo-flow.git
-   cd illumo-flow
-   uv pip install -e .  # or pip install -e .
+   pip install illumo-flow
    ```
+   （開発版を試す場合はリポジトリを clone して `uv pip install -e .` でも構いません）
 2. **Configure environment**
    - Ensure your LLM endpoint credentials are available (OpenAI key or LMStudio without auth).
    - Optional `.env` for convenience, but the tutorial primarily passes credentials at runtime.
